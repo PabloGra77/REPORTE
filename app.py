@@ -10,13 +10,15 @@ Sube tu archivo **Excel (.xlsx)** exportado del sistema **GIA** para generar aut
 Incluye cálculos de eficiencia, cumplimiento de SLA y comparativos visuales por técnico.
 """)
 
-uploaded_file = st.file_uploader("📁 Cargar archivo Excel (.xlsx)", type=["xlsx"])
-
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
     df = df.fillna(0)
 
-    # Cálculos de métricas
+    # 🔧 Convertir todo lo posible a numérico
+    for col in df.columns[1:]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+
+    # Calcular métricas
     df["Eficiencia (%)"] = (df["Cantidad de casos resueltos"] /
                            (df["Cantidad de casos abiertos"] + df["Cantidad de casos resueltos"] + 1e-9)) * 100
     df["Cumplimiento SLA (%)"] = ((df["Cantidad de casos resueltos"] - df["Cantidad de casos tardíos"]) /
