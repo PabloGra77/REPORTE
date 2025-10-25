@@ -94,9 +94,12 @@ if uploaded_file:
         if len(df_validos) > 0:
             mejor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmax(), 0]
             tecnico_mas_solicitado = df_validos.iloc[df_validos[COL_ASIGNADOS].idxmax(), 0]
+            tecnico_mas_eficaz = df_validos.iloc[df_validos["Eficacia Global (%)"].idxmax(), 0]
+            eficacia_valor = round(df_validos["Eficacia Global (%)"].max(), 2)
             peor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmin(), 0]
         else:
-            mejor_tecnico = tecnico_mas_solicitado = peor_tecnico = "—"
+            mejor_tecnico = tecnico_mas_solicitado = tecnico_mas_eficaz = peor_tecnico = "—"
+            eficacia_valor = 0.0
 
         eficiencia_prom = round(df_validos["Eficiencia (%)"].mean(), 2)
         sla_prom = round(df_validos["Cumplimiento SLA (%)"].mean(), 2)
@@ -116,6 +119,7 @@ if uploaded_file:
         - ⏱️ **Cumplimiento SLA promedio:** {sla_prom}%
         - 👥 **Técnico más solicitado:** {tecnico_mas_solicitado}
         - 🥇 **Mejor técnico (Rendimiento Global):** {mejor_tecnico}
+        - 💥 **Técnico más eficaz:** {tecnico_mas_eficaz} ({eficacia_valor}%)
         - 🧰 **Técnico con menor rendimiento:** {peor_tecnico}
         """)
 
@@ -123,8 +127,8 @@ if uploaded_file:
         # COMPARATIVA ENTRE TÉCNICOS CLAVE
         # ==========================
         if tecnico_mas_solicitado != "—" and mejor_tecnico != "—":
-            comp_df = df_validos[df_validos[COL_TECNICO].isin([tecnico_mas_solicitado, mejor_tecnico])]
-            st.subheader("⚖️ Comparativa entre el técnico más solicitado y el de mejor rendimiento")
+            comp_df = df_validos[df_validos[COL_TECNICO].isin([tecnico_mas_solicitado, mejor_tecnico, tecnico_mas_eficaz])]
+            st.subheader("⚖️ Comparativa entre técnicos destacados")
             st.dataframe(comp_df[[COL_TECNICO, COL_ASIGNADOS, COL_RESUELTOS, "Eficiencia (%)", "Cumplimiento SLA (%)", "Eficacia Global (%)", "Rendimiento Global"]])
 
         # ==========================
@@ -167,7 +171,7 @@ if uploaded_file:
         st.plotly_chart(fig2, use_container_width=True)
 
         # ==========================
-        # GRÁFICO 3 - Eficacia Global (nuevo)
+        # GRÁFICO 3 - Eficacia Global
         # ==========================
         st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
         fig3 = px.scatter(
@@ -176,7 +180,7 @@ if uploaded_file:
             y="Eficacia Global (%)",
             size=COL_RESUELTOS,
             color="Eficacia Global (%)",
-            text=COL_TECNICO,  # 🔹 muestra el nombre
+            text=COL_TECNICO,
             hover_name=COL_TECNICO,
             color_continuous_scale="Bluered",
             title="Eficacia del Técnico según el volumen de casos asignados",
@@ -186,7 +190,6 @@ if uploaded_file:
             marker=dict(line=dict(width=1, color="DarkSlateGrey"), opacity=0.8)
         )
 
-        # Línea de promedio de eficacia
         prom_eficacia = df_validos["Eficacia Global (%)"].mean()
         fig3.add_hline(
             y=prom_eficacia,
