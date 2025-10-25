@@ -5,11 +5,11 @@ import plotly.graph_objects as go
 from io import BytesIO
 from datetime import datetime
 from reportlab.lib.pagesizes import A4
-from reportlab.lib import colors
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet
 import tempfile
+import base64
 
 # ==========================
 # CONFIGURACIÓN GLOBAL
@@ -38,6 +38,7 @@ body {
 .banner img {
     height: 70px;
     margin-right: 15px;
+    border-radius: 8px;
 }
 .banner-text {
     font-size: 32px;
@@ -70,11 +71,21 @@ hr {border:0;height:1px;background:#333;margin:25px 0;}
 """, unsafe_allow_html=True)
 
 # ============
+# CARGAR LOGO GIA LOCAL (base64)
+# ============
+def get_logo_base64():
+    with open("logo-GLPI-250-black.png", "rb") as f:
+        data = f.read()
+    return base64.b64encode(data).decode()
+
+logo_base64 = get_logo_base64()
+
+# ============
 # ENCABEZADO GIA
 # ============
-st.markdown("""
+st.markdown(f"""
 <div class="banner">
-    <img src="https://raw.githubusercontent.com/PabloGra77/INFORME/main/logo_gia.png" alt="Logo GIA">
+    <img src="data:image/png;base64,{logo_base64}" alt="Logo GIA">
     <div>
         <div class="banner-text">🤖 GIA - Panel de Estadísticas</div>
         <div class="banner-sub">IPS Goleman | Inteligencia para el Soporte</div>
@@ -138,7 +149,6 @@ if uploaded_file:
         mejor = df_validos.loc[df_validos["Rendimiento Global"].idxmax(), COL_TECNICO]
         mas_solicitado = df_validos.loc[df_validos["Casos asignados"].idxmax(), COL_TECNICO]
         mas_eficaz = df_validos.loc[df_validos["Eficacia Global (%)"].idxmax(), COL_TECNICO]
-        peor = df_validos.loc[df_validos["Rendimiento Global"].idxmin(), COL_TECNICO]
 
         # ==========================
         # TARJETAS DE RESUMEN
