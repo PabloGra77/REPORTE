@@ -104,14 +104,18 @@ if uploaded_file:
         )
 
         # ==========================
-        # IDENTIFICAR TÉCNICOS DESTACADOS
+        # IDENTIFICAR TÉCNICOS DESTACADOS (versión robusta)
         # ==========================
         if len(df_validos) > 0:
-            mejor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmax(), 0]
-            tecnico_mas_solicitado = df_validos.iloc[df_validos[COL_ASIGNADOS].idxmax(), 0]
-            tecnico_mas_eficaz = df_validos.iloc[df_validos["Eficacia Global (%)"].idxmax(), 0]
-            eficacia_valor = round(df_validos["Eficacia Global (%)"].max(), 2)
-            peor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmin(), 0]
+            try:
+                mejor_tecnico = df_validos.loc[df_validos["Rendimiento Global"].idxmax(), COL_TECNICO]
+                tecnico_mas_solicitado = df_validos.loc[df_validos[COL_ASIGNADOS].idxmax(), COL_TECNICO]
+                tecnico_mas_eficaz = df_validos.loc[df_validos["Eficacia Global (%)"].idxmax(), COL_TECNICO]
+                eficacia_valor = round(df_validos["Eficacia Global (%)"].max(), 2)
+                peor_tecnico = df_validos.loc[df_validos["Rendimiento Global"].idxmin(), COL_TECNICO]
+            except Exception:
+                mejor_tecnico = tecnico_mas_solicitado = tecnico_mas_eficaz = peor_tecnico = "—"
+                eficacia_valor = 0.0
         else:
             mejor_tecnico = tecnico_mas_solicitado = tecnico_mas_eficaz = peor_tecnico = "—"
             eficacia_valor = 0.0
@@ -139,7 +143,7 @@ if uploaded_file:
         """)
 
         # ==========================
-        # 📊 GRÁFICO 1 - CASOS
+        # GRÁFICO 1 - CASOS
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1 = go.Figure()
@@ -165,7 +169,7 @@ if uploaded_file:
         st.plotly_chart(fig1, use_container_width=True)
 
         # ==========================
-        # 🏆 GRÁFICO 2 - RENDIMIENTO GLOBAL
+        # GRÁFICO 2 - RENDIMIENTO GLOBAL
         # ==========================
         st.subheader("🏆 Rendimiento Global por Técnico (ponderado)")
         fig2 = px.bar(
@@ -178,7 +182,7 @@ if uploaded_file:
         st.plotly_chart(fig2, use_container_width=True)
 
         # ==========================
-        # 💥 GRÁFICO 3 - EFICACIA GLOBAL
+        # GRÁFICO 3 - EFICACIA GLOBAL
         # ==========================
         st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
         fig3 = px.scatter(
@@ -217,7 +221,7 @@ if uploaded_file:
         st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
-        # 👥 SALUD DEL GRUPO
+        # SALUD DEL GRUPO
         # ==========================
         st.subheader("👥 Salud del Grupo (Todos los técnicos en análisis)")
 
@@ -233,7 +237,6 @@ if uploaded_file:
 
         colA, colB = st.columns(2)
 
-        # Gauge
         with colA:
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
@@ -262,7 +265,6 @@ if uploaded_file:
             else:
                 st.success("🟢 El grupo está operando con excelente rendimiento general.")
 
-        # Donut
         with colB:
             labels = ["Resueltos a tiempo", "Resueltos tardíos", "Pendientes"]
             values = [max(tot_resueltos - tot_tardios, 0), max(tot_tardios, 0), pendientes]
