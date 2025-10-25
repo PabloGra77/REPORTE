@@ -5,9 +5,7 @@ import plotly.graph_objects as go
 from io import BytesIO
 from datetime import datetime
 from reportlab.lib import colors
-from reportlab.platypus import (
-    SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
-)
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -107,26 +105,18 @@ if uploaded_file:
         )
 
         # ==========================
-        # TOTALES & MÉTRICAS DE GRUPO
+        # MÉTRICAS
         # ==========================
-        tot_asignados = df_validos["Casos asignados"].sum()
-        tot_resueltos = df_validos["Cantidad de casos resueltos"].sum()
-        tot_tardios  = df_validos["Cantidad de casos tardíos"].sum()
-        pendientes   = max(tot_asignados - tot_resueltos, 0)
-        n_tecnicos   = df_validos[COL_TECNICO].nunique()
-
         eficiencia_prom = round(df_validos["Eficiencia (%)"].mean(), 2)
         sla_prom        = round(df_validos["Cumplimiento SLA (%)"].mean(), 2)
         eficacia_prom   = round(df_validos["Eficacia Global (%)"].mean(), 2)
 
-        eff_grupo = (tot_resueltos / (tot_asignados + 1e-9)) * 100
-        sla_grupo = ((tot_resueltos - tot_tardios) / (tot_resueltos + 1e-9)) * 100
-        efc_grupo = ((tot_resueltos - tot_tardios) / (tot_asignados + 1e-9)) * 100
-        indice_salud = round((eff_grupo + sla_grupo + efc_grupo) / 3, 2)
+        tot_asignados = df_validos["Casos asignados"].sum()
+        tot_resueltos = df_validos["Cantidad de casos resueltos"].sum()
+        tot_tardios   = df_validos["Cantidad de casos tardíos"].sum()
+        pendientes    = max(tot_asignados - tot_resueltos, 0)
+        indice_salud  = round((eficiencia_prom + sla_prom + eficacia_prom) / 3, 2)
 
-        # ==========================
-        # DESTACADOS
-        # ==========================
         mejor          = df_validos.loc[df_validos["Rendimiento Global"].idxmax(), COL_TECNICO] if len(df_validos) else "—"
         mas_solicitado = df_validos.loc[df_validos["Casos asignados"].idxmax(), COL_TECNICO]    if len(df_validos) else "—"
         mas_eficaz     = df_validos.loc[df_validos["Eficacia Global (%)"].idxmax(), COL_TECNICO] if len(df_validos) else "—"
@@ -151,12 +141,34 @@ if uploaded_file:
         c8.markdown(f"<div class='metric-card'><div class='metric-value'>{peor}</div><div class='metric-label'>Menor rendimiento</div></div>", unsafe_allow_html=True)
 
         # ==========================
-        # PDF EXPORT
+        # GRÁFICOS
+        # ==========================
+        fig1 = go.Figure()
+        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Casos asignados"], name="Asignados"))
+        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Cantidad de casos resueltos"], name="Resueltos"))
+        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Cantidad de casos tardíos"], name="Tardíos"))
+        fig1.update_layout(template="plotly_dark", title="📦 Casos por Técnico", barmode="group")
+        st.plotly_chart(fig1, use_container_width=True)
+
+        fig2 = px.bar(df_validos, x=COL_TECNICO, y="Rendimiento Global", color="Rendimiento Global",
+                      text_auto=".2f", color_continuous_scale="Viridis",
+                      title="⚙️ Rendimiento Global por Técnico")
+        fig2.update_layout(template="plotly_dark")
+        st.plotly_chart(fig2, use_container_width=True)
+
+        fig3 = px.scatter(df_validos, x="Casos asignados", y="Eficacia Global (%)",
+                          size="Cantidad de casos resueltos", color="Eficacia Global (%)",
+                          text=COL_TECNICO, color_continuous_scale="Bluered",
+                          title="🎯 Eficacia Global (Casos asignados vs Eficacia)")
+        fig3.update_traces(textposition="top center")
+        st.plotly_chart(fig3, use_container_width=True)
+
+        # ==========================
+        # PDF
         # ==========================
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
-            nombre_pdf = f"reporte_GIA_{fecha}.pdf"
             doc = SimpleDocTemplate(buffer, pagesize=A4)
             story = []
 
@@ -177,7 +189,7 @@ if uploaded_file:
             doc.build(story)
             pdf = buffer.getvalue()
             buffer.close()
-            return nombre_pdf, pdf
+            return f"reporte_GIA_{fecha}.pdf", pdf
 
         nombre_pdf, pdf = generar_pdf()
         st.download_button("📄 Descargar Reporte GIA (PDF)", pdf, nombre_pdf, "application/pdf")
