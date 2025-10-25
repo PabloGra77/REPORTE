@@ -210,6 +210,67 @@ if uploaded_file:
         st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
+        # ANÁLISIS POR GRUPO TÉCNICO
+        # ==========================
+        if "Grupo Técnico" in df_validos.columns or "Grupo" in df_validos.columns:
+            COL_GRUPO = "Grupo Técnico" if "Grupo Técnico" in df_validos.columns else "Grupo"
+
+            st.subheader("👥 Eficiencia por Grupo Técnico")
+
+            grupo_df = (
+                df_validos
+                .groupby(COL_GRUPO)
+                .agg({
+                    COL_ASIGNADOS: "sum",
+                    COL_RESUELTOS: "sum",
+                    COL_TARDIOS: "sum"
+                })
+                .reset_index()
+            )
+
+            grupo_df["Eficiencia Grupo (%)"] = (grupo_df[COL_RESUELTOS] / (grupo_df[COL_ASIGNADOS] + 1e-9)) * 100
+            grupo_df["Eficacia Grupo (%)"] = ((grupo_df[COL_RESUELTOS] - grupo_df[COL_TARDIOS]) / (grupo_df[COL_ASIGNADOS] + 1e-9)) * 100
+
+            st.dataframe(grupo_df, use_container_width=True)
+
+            eficiencia_total = round(grupo_df["Eficiencia Grupo (%)"].mean(), 2)
+            eficacia_total = round(grupo_df["Eficacia Grupo (%)"].mean(), 2)
+
+            st.markdown(f"""
+            ### 📈 Desempeño Global de los Grupos
+            - ⚙️ **Eficiencia promedio general:** {eficiencia_total} %
+            - 💥 **Eficacia promedio general:** {eficacia_total} %
+            """)
+
+            grupo_mas_eficiente = grupo_df.iloc[grupo_df["Eficiencia Grupo (%)"].idxmax(), 0]
+            st.success(f"🏆 El grupo más eficiente es **{grupo_mas_eficiente}**, con {grupo_df['Eficiencia Grupo (%)'].max():.2f}% de eficiencia.")
+
+            fig4 = go.Figure()
+            fig4.add_trace(go.Bar(
+                x=grupo_df[COL_GRUPO],
+                y=grupo_df["Eficiencia Grupo (%)"],
+                name="Eficiencia (%)",
+                marker_color="rgba(58,134,255,0.8)"
+            ))
+            fig4.add_trace(go.Bar(
+                x=grupo_df[COL_GRUPO],
+                y=grupo_df["Eficacia Grupo (%)"],
+                name="Eficacia (%)",
+                marker_color="rgba(255,159,28,0.8)"
+            ))
+            fig4.update_layout(
+                barmode='group',
+                title="Eficiencia y Eficacia por Grupo Técnico",
+                xaxis_title="Grupo Técnico",
+                yaxis_title="Porcentaje (%)",
+                template="plotly_dark"
+            )
+            st.plotly_chart(fig4, use_container_width=True)
+
+        else:
+            st.info("ℹ️ No se encontró la columna 'Grupo Técnico' en el archivo. Agrega esta columna para analizar por equipo.")
+
+        # ==========================
         # DESCARGA RESULTADOS
         # ==========================
         output = BytesIO()
