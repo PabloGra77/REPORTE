@@ -53,16 +53,17 @@ if uploaded_file:
 
         df = df.fillna(0)
 
-        # Definir columnas
+        # Definir columnas base
         COL_TECNICO   = df.columns[0]
         COL_ASIGNADOS = "Casos asignados"
         COL_RESUELTOS = "Cantidad de casos resueltos"
         COL_TARDIOS   = "Cantidad de casos tardíos"
 
+        # Renombrar “casos abiertos” como asignados si existe
         if "Cantidad de casos abiertos" in df.columns:
             df[COL_ASIGNADOS] = df["Cantidad de casos abiertos"]
 
-        # Limpiar técnicos vacíos
+        # Limpiar nombres de técnicos
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
         df = df[~df.iloc[:, 0].isin(["", "0", "nan", "None"])].reset_index(drop=True)
 
@@ -72,7 +73,7 @@ if uploaded_file:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
         # ==========================
-        # SELECCIÓN DE TÉCNICOS A EXCLUIR
+        # FILTRO INTERACTIVO DE TÉCNICOS
         # ==========================
         st.subheader("🧹 Filtrar técnicos del análisis")
         tecnicos = sorted(df[COL_TECNICO].unique())
@@ -92,8 +93,10 @@ if uploaded_file:
         df["Cumplimiento SLA (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_RESUELTOS] + 1e-9)) * 100
         df["Eficacia Global (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_ASIGNADOS] + 1e-9)) * 100
 
+        # Filtrar técnicos válidos
         df_validos = df[(df[COL_ASIGNADOS] > 0) | (df[COL_RESUELTOS] > 0)].copy()
 
+        # Calcular rendimiento global ponderado
         max_asignados = df_validos[COL_ASIGNADOS].max() if len(df_validos) else 1
         df_validos["Rendimiento Global"] = (
             ((df_validos["Eficiencia (%)"] + df_validos["Cumplimiento SLA (%)"]) / 2)
@@ -136,23 +139,33 @@ if uploaded_file:
         """)
 
         # ==========================
-        # GRÁFICO 1 - Casos
+        # GRÁFICOS INDIVIDUALES
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1 = go.Figure()
-        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos[COL_ASIGNADOS],
-                              name="Casos Asignados", marker=dict(color="rgba(58,134,255,0.8)")))
-        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos[COL_RESUELTOS],
-                              name="Casos Resueltos", marker=dict(color="rgba(255,159,28,0.8)")))
-        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos[COL_TARDIOS],
-                              name="Casos Tardíos", marker=dict(color="rgba(255,70,70,0.8)")))
-        fig1.update_layout(barmode='group', template="plotly_dark",
-                           title="Comparativo de Casos Asignados / Resueltos / Tardíos",
-                           xaxis_title="Técnico", yaxis_title="Cantidad de Casos")
+        fig1.add_trace(go.Bar(
+            x=df_validos[COL_TECNICO], y=df_validos[COL_ASIGNADOS],
+            name="Casos Asignados", marker=dict(color="rgba(58,134,255,0.8)")
+        ))
+        fig1.add_trace(go.Bar(
+            x=df_validos[COL_TECNICO], y=df_validos[COL_RESUELTOS],
+            name="Casos Resueltos", marker=dict(color="rgba(255,159,28,0.8)")
+        ))
+        fig1.add_trace(go.Bar(
+            x=df_validos[COL_TECNICO], y=df_validos[COL_TARDIOS],
+            name="Casos Tardíos", marker=dict(color="rgba(255,70,70,0.8)")
+        ))
+        fig1.update_layout(
+            barmode='group',
+            title="Comparativo de Casos Asignados / Resueltos / Tardíos",
+            template="plotly_dark",
+            xaxis_title="Técnico",
+            yaxis_title="Cantidad de Casos"
+        )
         st.plotly_chart(fig1, use_container_width=True)
 
         # ==========================
-        # BLOQUE NUEVO - SALUD DEL GRUPO
+        # SALUD DEL GRUPO
         # ==========================
         st.subheader("👥 Salud del Grupo (Todos los técnicos en análisis)")
 
@@ -168,7 +181,7 @@ if uploaded_file:
 
         colA, colB = st.columns(2)
 
-        # Gauge: Índice de salud
+        # Gauge: índice de salud del grupo
         with colA:
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
@@ -197,7 +210,7 @@ if uploaded_file:
             else:
                 st.success("🟢 El grupo está operando con excelente rendimiento general.")
 
-        # Donut: composición
+        # Donut: composición del grupo
         with colB:
             labels = ["Resueltos a tiempo", "Resueltos tardíos", "Pendientes"]
             values = [max(tot_resueltos - tot_tardios, 0), max(tot_tardios, 0), pendientes]
@@ -220,10 +233,6 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
-
-else:
-    st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
-al procesar el archivo: {e}")
 
 else:
     st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
