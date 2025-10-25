@@ -25,9 +25,10 @@ st.markdown("""
 
 st.markdown('<div class="title">🤖 Panel de Estadísticas GIA</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia para el Soporte</div>', unsafe_allow_html=True)
+
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
-para generar reportes de rendimiento técnico.  
+para generar reportes de rendimiento técnico y de grupo.  
 > *Nota:* La columna “Cantidad de casos abiertos” se interpreta como “Casos asignados”.
 """)
 
@@ -131,7 +132,9 @@ if uploaded_file:
         fig3.update_traces(textposition="top center")
         st.plotly_chart(fig3, use_container_width=True)
 
-        # 4️⃣ Salud del grupo
+        # ==========================
+        # SALUD DEL GRUPO (Visual)
+        # ==========================
         tot_asignados = df_validos[COL_ASIGNADOS].sum()
         tot_resueltos = df_validos[COL_RESUELTOS].sum()
         tot_tardios = df_validos[COL_TARDIOS].sum()
@@ -145,6 +148,32 @@ if uploaded_file:
         st.subheader("👥 Salud del Grupo")
         st.metric("Índice de Salud del Grupo", f"{indice_salud:.2f}%")
 
+        # Gráfico tipo medidor
+        fig4 = go.Figure(go.Indicator(
+            mode="gauge+number",
+            value=indice_salud,
+            title={'text': "Salud del Grupo (%)", 'font': {'size': 20, 'color': "#FFFFFF"}},
+            gauge={
+                'axis': {'range': [0, 100], 'tickcolor': "#FFFFFF"},
+                'bar': {'color': "#3A86FF"},
+                'bgcolor': "#1e1e1e",
+                'borderwidth': 2,
+                'bordercolor': "#888",
+                'steps': [
+                    {'range': [0, 50], 'color': "#ef476f"},
+                    {'range': [50, 75], 'color': "#ffd166"},
+                    {'range': [75, 100], 'color': "#06d6a0"}
+                ],
+                'threshold': {
+                    'line': {'color': "white", 'width': 4},
+                    'thickness': 0.8,
+                    'value': indice_salud
+                }
+            }
+        ))
+        fig4.update_layout(template="plotly_dark", height=350, margin=dict(t=30, b=30, l=30, r=30))
+        st.plotly_chart(fig4, use_container_width=True)
+
         # ==========================
         # GENERAR PDF CON GRÁFICOS
         # ==========================
@@ -155,7 +184,7 @@ if uploaded_file:
 
             # Guardar las gráficas como imágenes temporales
             temp_imgs = []
-            for fig in [fig1, fig2, fig3]:
+            for fig in [fig1, fig2, fig3, fig4]:
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 fig.write_image(tmp.name, format="png", width=800, height=500, scale=2)
                 temp_imgs.append(tmp.name)
@@ -212,5 +241,6 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
+
 else:
     st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
