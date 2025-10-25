@@ -1,6 +1,6 @@
 import pandas as pd
-import matplotlib.pyplot as plt
 import streamlit as st
+import plotly.express as px
 from io import BytesIO
 
 # ==========================
@@ -8,7 +8,7 @@ from io import BytesIO
 # ==========================
 st.set_page_config(page_title="Panel GIA", page_icon="🤖", layout="wide")
 
-# Encabezado con estilo corporativo
+# Encabezado
 st.markdown("""
 <style>
     .title {
@@ -31,8 +31,8 @@ st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia p
 
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
-para generar automáticamente los reportes y estadísticas de rendimiento técnico (mensuales o quincenales).  
-Los campos que no aportan datos serán ignorados para no afectar los resultados.  
+para generar automáticamente los reportes y estadísticas de rendimiento técnico.  
+Incluye cálculos de eficiencia, cumplimiento de SLA y comparativos visuales por técnico.  
 """)
 
 # ==========================
@@ -53,7 +53,6 @@ if uploaded_file:
 
         df = df.fillna(0)
 
-        # === LIMPIEZA DE DATOS ===
         # Ignorar columnas no relevantes
         columnas_ignorar = [
             "Cantidad de casos cerrados",
@@ -63,10 +62,10 @@ if uploaded_file:
         ]
         columnas_existentes = [col for col in df.columns if col not in columnas_ignorar]
 
-        # Asegurar que la primera columna (técnico o nombre) sea texto
+        # Asegurar que la primera columna sea texto (técnico)
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
 
-        # Convertir solo las columnas relevantes a numéricas
+        # Convertir columnas relevantes a numéricas
         for col in columnas_existentes[1:]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
@@ -101,43 +100,47 @@ if uploaded_file:
         """)
 
         # ==========================
-        # GRÁFICOS
+        # GRÁFICOS INTERACTIVOS 3D
         # ==========================
-        st.subheader("📊 Comparativo de Casos por Técnico")
-        fig1, ax1 = plt.subplots(figsize=(10, 5))
-        df.plot(
+        st.subheader("📊 Comparativo de Casos por Técnico (3D Interactivo)")
+        fig1 = px.bar_3d(
+            df,
             x=df.columns[0],
-            y=["Cantidad de casos abiertos", "Cantidad de casos resueltos", "Cantidad de casos tardíos"],
-            kind="bar", ax=ax1
+            y="Cantidad de casos resueltos",
+            z="Cantidad de casos abiertos",
+            color="Cantidad de casos tardíos",
+            title="Comparativo de Casos - Plataforma GIA",
+            labels={df.columns[0]: "Técnico"},
+            color_continuous_scale="Bluered"
         )
-        plt.title("Comparativo de Casos - Plataforma GIA")
-        plt.ylabel("Cantidad de Casos")
-        plt.xticks(rotation=45, ha="right")
-        plt.grid(True, linestyle="--", alpha=0.5)
-        st.pyplot(fig1)
+        fig1.update_traces(marker=dict(line=dict(width=0.5, color='DarkSlateGrey')))
+        st.plotly_chart(fig1, use_container_width=True)
 
-        # --- Eficiencia ---
-        st.subheader("💪 Eficiencia por Técnico (%)")
-        fig2, ax2 = plt.subplots(figsize=(8, 5))
-        tecnicos = df.iloc[:, 0].astype(str)
-        eficiencias = df["Eficiencia (%)"].astype(float)
-        ax2.bar(tecnicos, eficiencias, color="#3A86FF")
-        plt.title("Eficiencia Operativa - GIA")
-        plt.ylabel("Eficiencia (%)")
-        plt.xticks(rotation=45, ha="right")
-        plt.grid(axis="y", linestyle="--", alpha=0.5)
-        st.pyplot(fig2)
+        st.subheader("💪 Eficiencia por Técnico (%) - Interactivo")
+        fig2 = px.bar(
+            df,
+            x=df.columns[0],
+            y="Eficiencia (%)",
+            text_auto=".2f",
+            color="Eficiencia (%)",
+            color_continuous_scale="Viridis",
+            title="Eficiencia Operativa - GIA"
+        )
+        fig2.update_traces(marker_line_width=1.2)
+        st.plotly_chart(fig2, use_container_width=True)
 
-        # --- Cumplimiento SLA ---
-        st.subheader("⏱️ Cumplimiento SLA por Técnico (%)")
-        fig3, ax3 = plt.subplots(figsize=(8, 5))
-        sla = df["Cumplimiento SLA (%)"].astype(float)
-        ax3.bar(tecnicos, sla, color="#FF9F1C")
-        plt.title("Cumplimiento de SLA - GIA")
-        plt.ylabel("Cumplimiento SLA (%)")
-        plt.xticks(rotation=45, ha="right")
-        plt.grid(axis="y", linestyle="--", alpha=0.5)
-        st.pyplot(fig3)
+        st.subheader("⏱️ Cumplimiento SLA por Técnico (%) - Interactivo")
+        fig3 = px.bar(
+            df,
+            x=df.columns[0],
+            y="Cumplimiento SLA (%)",
+            text_auto=".2f",
+            color="Cumplimiento SLA (%)",
+            color_continuous_scale="Oranges",
+            title="Cumplimiento de SLA - GIA"
+        )
+        fig3.update_traces(marker_line_width=1.2)
+        st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
         # DESCARGA RESULTADOS
