@@ -134,7 +134,7 @@ if uploaded_file:
         peor           = df_validos.loc[df_validos["Rendimiento Global"].idxmin(), COL_TECNICO] if len(df_validos) else "—"
 
         # ==========================
-        # RESUMEN GENERAL (AMPLIADO)
+        # RESUMEN GENERAL
         # ==========================
         st.markdown("## <span class='badge'>📊 Resumen General</span>", unsafe_allow_html=True)
 
@@ -146,149 +146,33 @@ if uploaded_file:
 
         c5,c6,c7,c8 = st.columns(4)
         c5.markdown(f"<div class='metric-card'><div class='metric-value'>{mas_solicitado}</div><div class='metric-label'>Técnico más solicitado</div></div>", unsafe_allow_html=True)
-        c6.markdown(f"<div class='metric-card'><div class='metric-value'>{mejor}</div><div class='metric-label'>Mejor Técnico (Rend. Global)</div></div>", unsafe_allow_html=True)
-        c7.markdown(f"<div class='metric-card'><div class='metric-value'>{mas_eficaz}</div><div class='metric-label'>Técnico más eficaz ({mas_eficaz_val:.2f}%)</div></div>", unsafe_allow_html=True)
-        c8.markdown(f"<div class='metric-card'><div class='metric-value'>{peor}</div><div class='metric-label'>Técnico con menor rendimiento</div></div>", unsafe_allow_html=True)
-
-        st.markdown("<hr>", unsafe_allow_html=True)
-        st.markdown(f"**📦 Totales** — Asignados: **{int(tot_asignados)}**, Resueltos: **{int(tot_resueltos)}**, Tardíos: **{int(tot_tardios)}**, Pendientes: **{int(pendientes)}** · Técnicos: **{n_tecnicos}**")
-        st.markdown("<hr>", unsafe_allow_html=True)
+        c6.markdown(f"<div class='metric-card'><div class='metric-value'>{mejor}</div><div class='metric-label'>Mejor Técnico</div></div>", unsafe_allow_html=True)
+        c7.markdown(f"<div class='metric-card'><div class='metric-value'>{mas_eficaz}</div><div class='metric-label'>Más eficaz ({mas_eficaz_val:.2f}%)</div></div>", unsafe_allow_html=True)
+        c8.markdown(f"<div class='metric-card'><div class='metric-value'>{peor}</div><div class='metric-label'>Menor rendimiento</div></div>", unsafe_allow_html=True)
 
         # ==========================
-        # GRÁFICOS
-        # ==========================
-        fig1 = go.Figure()
-        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Casos asignados"], name="Asignados"))
-        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Cantidad de casos resueltos"], name="Resueltos"))
-        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Cantidad de casos tardíos"], name="Tardíos"))
-        fig1.update_layout(template="plotly_dark", title="📦 Casos por Técnico", barmode="group")
-        st.plotly_chart(fig1, use_container_width=True)
-
-        fig2 = px.bar(
-            df_validos, x=COL_TECNICO, y="Rendimiento Global",
-            color="Rendimiento Global", text_auto=".2f",
-            color_continuous_scale="Viridis", title="⚙️ Rendimiento Global por Técnico"
-        )
-        fig2.update_layout(template="plotly_dark")
-        st.plotly_chart(fig2, use_container_width=True)
-
-        fig3 = px.scatter(
-            df_validos, x="Casos asignados", y="Eficacia Global (%)",
-            size="Cantidad de casos resueltos", color="Eficacia Global (%)",
-            text=COL_TECNICO, color_continuous_scale="Bluered",
-            title="🎯 Eficacia Global (Casos asignados vs Eficacia)"
-        )
-        fig3.update_traces(textposition="top center")
-        st.plotly_chart(fig3, use_container_width=True)
-
-        # ==========================
-        # SALUD DEL GRUPO (Gauge)
-        # ==========================
-        st.markdown("## 👥 Salud del Grupo")
-        fig4 = go.Figure(go.Indicator(
-            mode="gauge+number",
-            value=indice_salud,
-            title={'text': "Salud del Grupo (%)", 'font': {'size': 22, 'color': "#FFFFFF"}},
-            gauge={
-                'axis': {'range': [0, 100], 'tickcolor': "#FFFFFF"},
-                'bar': {'color': "#3A86FF"},
-                'steps': [
-                    {'range': [0, 50], 'color': "#ef476f"},
-                    {'range': [50, 75], 'color': "#ffd166"},
-                    {'range': [75, 100], 'color': "#06d6a0"}
-                ],
-                'threshold': {'line': {'color': "white", 'width': 3}, 'value': indice_salud}
-            }
-        ))
-        fig4.update_layout(template="plotly_dark", height=350)
-        st.plotly_chart(fig4, use_container_width=True)
-
-        # ==========================
-        # PDF PROFESIONAL
+        # PDF EXPORT
         # ==========================
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
             nombre_pdf = f"reporte_GIA_{fecha}.pdf"
-
-            temp_imgs = []
-            for fig in [fig1, fig2, fig3, fig4]:
-                tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                fig.write_image(tmp.name, format="png", width=850, height=500, scale=2)
-                temp_imgs.append(tmp.name)
-
-            styles = getSampleStyleSheet()
-            style_title = ParagraphStyle(
-                'TitleCenter', parent=styles['Title'], alignment=TA_CENTER,
-                textColor=colors.HexColor("#3A86FF"), fontSize=20
-            )
-            style_subtitle = ParagraphStyle(
-                'Subtitle', parent=styles['Normal'], alignment=TA_CENTER,
-                textColor=colors.HexColor("#FF9F1C"), fontSize=12
-            )
-            style_section = ParagraphStyle(
-                'Section', parent=styles['Heading2'], textColor=colors.HexColor("#3A86FF")
-            )
-            style_text = ParagraphStyle(
-                'BodyText', parent=styles['Normal'], alignment=TA_LEFT, fontSize=11, leading=15
-            )
-
-            doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=40, bottomMargin=30)
+            doc = SimpleDocTemplate(buffer, pagesize=A4)
             story = []
 
-            story.append(Paragraph("📘 Reporte GIA", style_title))
-            story.append(Paragraph(f"Fecha del informe: {fecha}", style_subtitle))
+            styles = getSampleStyleSheet()
+            style_h1 = ParagraphStyle('h1', parent=styles['Heading1'], alignment=TA_CENTER, textColor=colors.HexColor("#3A86FF"))
+            style_text = ParagraphStyle('text', parent=styles['Normal'], fontSize=11, leading=15)
+
+            story.append(Paragraph("📘 Reporte GIA", style_h1))
+            story.append(Paragraph(f"Fecha: {fecha}", style_text))
             story.append(Spacer(1, 12))
-
-            data_metrics = [
-                ["Eficiencia Promedio", f"{eficiencia_prom:.2f} %"],
-                ["Cumplimiento SLA Promedio", f"{sla_prom:.2f} %"],
-                ["Eficacia Promedio", f"{eficacia_prom:.2f} %"],
-                ["Salud del Grupo", f"{indice_salud:.2f} %"],
-            ]
-            t = Table(data_metrics, colWidths=[3.2*inch, 1.3*inch])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3A86FF")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-                ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor("#AAAAAA")),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey])
-            ]))
-            story.append(t)
-            story.append(Spacer(1, 15))
-
-            story.append(Paragraph("👷 Técnicos Destacados", style_section))
-            story.append(Spacer(1, 8))
-            story.append(Paragraph(f"• <b>Técnico más solicitado:</b> {mas_solicitado}", style_text))
-            story.append(Paragraph(f"• <b>Mejor técnico (Rendimiento Global):</b> {mejor}", style_text))
-            story.append(Paragraph(f"• <b>Técnico más eficaz:</b> {mas_eficaz} ({mas_eficaz_val:.2f} %)", style_text))
-            story.append(Paragraph(f"• <b>Técnico con menor rendimiento:</b> {peor}", style_text))
-            story.append(Spacer(1, 10))
-
-            story.append(Paragraph("📦 Totales del periodo", style_section))
+            story.append(Paragraph(f"Eficiencia Prom: {eficiencia_prom}% | SLA: {sla_prom}% | Eficacia: {eficacia_prom}% | Salud: {indice_salud}%", style_text))
             story.append(Spacer(1, 6))
-            story.append(Paragraph(
-                f"Asignados: <b>{int(tot_asignados)}</b> · "
-                f"Resueltos: <b>{int(tot_resueltos)}</b> · "
-                f"Tardíos: <b>{int(tot_tardios)}</b> · "
-                f"Pendientes: <b>{int(pendientes)}</b> · "
-                f"Técnicos: <b>{n_tecnicos}</b>", style_text
-            ))
-            story.append(Spacer(1, 18))
-
-            titulos_graficos = [
-                "📊 Casos por Técnico",
-                "⚙️ Rendimiento Global por Técnico",
-                "🎯 Eficacia Global",
-                "👥 Salud del Grupo"
-            ]
-
-            for i, path in enumerate(temp_imgs):
-                story.append(Paragraph(titulos_graficos[i], style_section))
-                story.append(Spacer(1, 6))
-                story.append(Image(path, width=6.3*inch, height=3.5*inch))
-                story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Más solicitado: {mas_solicitado} | Mejor técnico: {mejor}", style_text))
+            story.append(Paragraph(f"Más eficaz: {mas_eficaz} ({mas_eficaz_val}%) | Peor: {peor}", style_text))
+            story.append(Spacer(1, 12))
+            story.append(Paragraph(f"Totales → Asignados: {tot_asignados} | Resueltos: {tot_resueltos} | Tardíos: {tot_tardios} | Pendientes: {pendientes}", style_text))
 
             doc.build(story)
             pdf = buffer.getvalue()
@@ -299,3 +183,7 @@ if uploaded_file:
         st.download_button("📄 Descargar Reporte GIA (PDF)", pdf, nombre_pdf, "application/pdf")
 
     except Exception as e:
+        st.error(f"❌ Error al procesar el archivo: {e}")
+
+else:
+    st.info("📄 Sube tu archivo Excel o CSV del sistema GIA para comenzar.")
