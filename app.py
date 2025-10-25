@@ -31,8 +31,8 @@ st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia p
 
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
-para generar automáticamente los reportes y estadísticas de rendimiento técnico.  
-Incluye cálculos de eficiencia, cumplimiento de SLA y comparativos visuales por técnico.  
+para generar automáticamente los reportes y estadísticas de rendimiento técnico (mensuales o quincenales).  
+Los campos que no aportan datos serán ignorados para no afectar los resultados.  
 """)
 
 # ==========================
@@ -51,18 +51,26 @@ if uploaded_file:
         else:
             df = pd.read_excel(uploaded_file)
 
-        # Rellenar vacíos
         df = df.fillna(0)
 
         # === LIMPIEZA DE DATOS ===
+        # Ignorar columnas no relevantes
+        columnas_ignorar = [
+            "Cantidad de casos cerrados",
+            "Cantidad de encuestas de satisfacción abiertas",
+            "Cantidad de encuestas de satisfacción respuestas",
+            "Satisfacción promedio"
+        ]
+        columnas_existentes = [col for col in df.columns if col not in columnas_ignorar]
+
         # Asegurar que la primera columna (técnico o nombre) sea texto
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
 
-        # Convertir las demás columnas en numéricas
-        for col in df.columns[1:]:
+        # Convertir solo las columnas relevantes a numéricas
+        for col in columnas_existentes[1:]:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
-        # === CÁLCULOS DE MÉTRICAS ===
+        # === CÁLCULOS ===
         df["Eficiencia (%)"] = (
             df["Cantidad de casos resueltos"] /
             (df["Cantidad de casos abiertos"] + df["Cantidad de casos resueltos"] + 1e-9)
@@ -74,12 +82,11 @@ if uploaded_file:
         ) * 100
 
         # ==========================
-        # MOSTRAR DATOS Y RESUMEN
+        # TABLA Y RESUMEN
         # ==========================
         st.subheader("📋 Tabla de resultados")
         st.dataframe(df, use_container_width=True)
 
-        # Resumen general
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         sla_prom = round(df["Cumplimiento SLA (%)"].mean(), 2)
         mejor_tecnico = df.iloc[df["Eficiencia (%)"].idxmax(), 0]
@@ -96,7 +103,6 @@ if uploaded_file:
         # ==========================
         # GRÁFICOS
         # ==========================
-        # --- Comparativo de casos ---
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1, ax1 = plt.subplots(figsize=(10, 5))
         df.plot(
@@ -110,7 +116,7 @@ if uploaded_file:
         plt.grid(True, linestyle="--", alpha=0.5)
         st.pyplot(fig1)
 
-        # --- Eficiencia por técnico ---
+        # --- Eficiencia ---
         st.subheader("💪 Eficiencia por Técnico (%)")
         fig2, ax2 = plt.subplots(figsize=(8, 5))
         tecnicos = df.iloc[:, 0].astype(str)
