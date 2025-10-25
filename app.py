@@ -33,7 +33,7 @@ st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia p
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
 para generar automáticamente los reportes y estadísticas de rendimiento técnico.  
-Los gráficos ahora son **interactivos y con efecto 3D realista** ✨
+Los gráficos usan **efecto 3D visual interactivo** con profundidad y sombras ✨
 """)
 
 # ==========================
@@ -101,49 +101,61 @@ if uploaded_file:
         """)
 
         # ==========================
-        # GRÁFICOS INTERACTIVOS 3D
+        # GRÁFICOS INTERACTIVOS 3D (efecto visual)
         # ==========================
-        st.subheader("📊 Comparativo de Casos por Técnico (3D Interactivo)")
+        st.subheader("📊 Comparativo de Casos por Técnico (Efecto 3D)")
 
-        fig1 = go.Figure(data=[
-            go.Bar3d(
-                x=df[df.columns[0]],
-                y=["Casos Resueltos"] * len(df),
-                z=[0] * len(df),
-                dx=[0.5] * len(df),
-                dy=[0.5] * len(df),
-                zsrc=df["Cantidad de casos resueltos"],
-                name="Casos Resueltos",
-                opacity=0.9
-            )
-        ])
+        fig1 = go.Figure()
+        fig1.add_trace(go.Bar(
+            x=df[df.columns[0]],
+            y=df["Cantidad de casos abiertos"],
+            name="Casos Abiertos",
+            marker=dict(color="rgba(58,134,255,0.8)", line=dict(color="rgba(58,134,255,1.0)", width=2)),
+        ))
+        fig1.add_trace(go.Bar(
+            x=df[df.columns[0]],
+            y=df["Cantidad de casos resueltos"],
+            name="Casos Resueltos",
+            marker=dict(color="rgba(255,159,28,0.8)", line=dict(color="rgba(255,159,28,1.0)", width=2)),
+        ))
+        fig1.add_trace(go.Bar(
+            x=df[df.columns[0]],
+            y=df["Cantidad de casos tardíos"],
+            name="Casos Tardíos",
+            marker=dict(color="rgba(255,70,70,0.8)", line=dict(color="rgba(255,70,70,1.0)", width=2)),
+        ))
+
         fig1.update_layout(
-            title="Comparativo de Casos - Plataforma GIA",
-            scene=dict(
-                xaxis_title="Técnico",
-                yaxis_title="Tipo de Caso",
-                zaxis_title="Cantidad",
-                camera_eye=dict(x=1.2, y=1.2, z=0.7)
-            )
+            barmode='group',
+            title="Comparativo de Casos - Plataforma GIA (Efecto 3D)",
+            xaxis_title="Técnico",
+            yaxis_title="Cantidad de Casos",
+            template="plotly_dark",
+            scene_camera=dict(eye=dict(x=1.3, y=1.2, z=0.7)),
+            bargap=0.2,
+            plot_bgcolor="rgba(20,20,30,1)",
+            paper_bgcolor="rgba(10,10,15,1)",
         )
+
         st.plotly_chart(fig1, use_container_width=True)
 
         # --- Eficiencia ---
-        st.subheader("💪 Eficiencia por Técnico (%) - Interactivo 3D")
+        st.subheader("💪 Eficiencia por Técnico (%) - Interactivo")
         fig2 = px.bar(
             df,
             x=df.columns[0],
             y="Eficiencia (%)",
             text_auto=".2f",
             color="Eficiencia (%)",
-            color_continuous_scale="Viridis",
+            color_continuous_scale="Blues",
             title="Eficiencia Operativa - GIA"
         )
         fig2.update_traces(marker_line_width=1.3)
+        fig2.update_layout(template="plotly_dark", bargap=0.3)
         st.plotly_chart(fig2, use_container_width=True)
 
         # --- Cumplimiento SLA ---
-        st.subheader("⏱️ Cumplimiento SLA por Técnico (%) - Interactivo 3D")
+        st.subheader("⏱️ Cumplimiento SLA por Técnico (%) - Interactivo")
         fig3 = px.bar(
             df,
             x=df.columns[0],
@@ -154,6 +166,7 @@ if uploaded_file:
             title="Cumplimiento de SLA - GIA"
         )
         fig3.update_traces(marker_line_width=1.3)
+        fig3.update_layout(template="plotly_dark", bargap=0.3)
         st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
