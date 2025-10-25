@@ -20,59 +20,36 @@ st.set_page_config(page_title="Panel GIA", page_icon="🤖", layout="wide")
 # ============
 st.markdown("""
 <style>
-body {
-    background-color:#0E1117;
-    color:white;
-}
+body {background-color:#0E1117; color:white;}
 .banner {
     background: linear-gradient(90deg, #3A86FF, #FF9F1C);
-    padding: 18px;
-    border-radius: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: flex-start;
-    box-shadow: 0 0 20px rgba(255,159,28,0.3);
-    margin-bottom: 25px;
+    padding: 18px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: flex-start;
+    box-shadow: 0 0 20px rgba(255,159,28,0.3); margin-bottom: 25px;
 }
-.banner-text {
-    font-size: 32px;
-    font-weight: bold;
-    color: white;
-}
-.banner-sub {
-    font-size: 16px;
-    color: #F8F9FA;
-}
+.banner-text { font-size: 32px; font-weight: bold; color: white; }
+.banner-sub { font-size: 16px; color: #F8F9FA; }
 .metric-card {
-    background-color:#1E1E1E;
-    padding:15px;
-    border-radius:15px;
-    text-align:center;
-    border:1px solid #3A86FF33;
-    box-shadow:0 0 8px rgba(58,134,255,0.3);
+    background-color:#1E1E1E; padding:16px; border-radius:14px; text-align:center;
+    border:1px solid #3A86FF33; box-shadow:0 0 8px rgba(58,134,255,0.25);
 }
-.metric-value {
-    font-size:26px;
-    font-weight:bold;
-    color:#FFFFFF;
-}
-.metric-label {
-    color:#FF9F1C;
-    font-size:14px;
-}
-hr {border:0;height:1px;background:#333;margin:25px 0;}
+.metric-value { font-size:22px; font-weight:800; color:#FFFFFF; }
+.metric-label { color:#FF9F1C; font-size:13px; }
+.badge { display:inline-block; padding:2px 8px; border-radius:999px; background:#23262F; border:1px solid #3A86FF55; font-size:12px; }
+hr {border:0;height:1px;background:#333;margin:20px 0;}
+.small { font-size:13px; color:#DADADA; }
 </style>
 """, unsafe_allow_html=True)
 
 # ============
-# ENCABEZADO GIA (SIN LOGO)
+# ENCABEZADO (sin logo)
 # ============
 st.markdown("""
 <div class="banner">
-    <div>
-        <div class="banner-text">🤖 GIA - Panel de Estadísticas</div>
-        <div class="banner-sub">IPS Goleman | Inteligencia para el Soporte</div>
-    </div>
+  <div>
+    <div class="banner-text">🤖 GIA - Panel de Estadísticas</div>
+    <div class="banner-sub">IPS Goleman | Inteligencia para el Soporte</div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -95,6 +72,7 @@ if uploaded_file:
         if "Cantidad de casos abiertos" in df.columns:
             df["Casos asignados"] = df["Cantidad de casos abiertos"]
 
+        # Limpieza
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
         df = df[~df.iloc[:, 0].isin(["", "0", "nan", "None"])].reset_index(drop=True)
 
@@ -112,13 +90,14 @@ if uploaded_file:
             df = df[~df[COL_TECNICO].isin(excluir)]
 
         # ==========================
-        # CÁLCULOS
+        # CÁLCULOS POR TÉCNICO
         # ==========================
         df["Eficiencia (%)"] = (df["Cantidad de casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Cumplimiento SLA (%)"] = ((df["Cantidad de casos resueltos"] - df["Cantidad de casos tardíos"]) /
                                       (df["Cantidad de casos resueltos"] + 1e-9)) * 100
         df["Eficacia Global (%)"] = ((df["Cantidad de casos resueltos"] - df["Cantidad de casos tardíos"]) /
                                      (df["Casos asignados"] + 1e-9)) * 100
+
         df_validos = df.copy()
         max_asignados = df_validos["Casos asignados"].max() if len(df_validos) else 1
         df_validos["Rendimiento Global"] = (
@@ -127,40 +106,53 @@ if uploaded_file:
         )
 
         # ==========================
-        # TÉCNICOS DESTACADOS
+        # TOTALES & MÉTRICAS DE GRUPO
         # ==========================
-        mejor = df_validos.loc[df_validos["Rendimiento Global"].idxmax(), COL_TECNICO]
-        mas_solicitado = df_validos.loc[df_validos["Casos asignados"].idxmax(), COL_TECNICO]
-        mas_eficaz = df_validos.loc[df_validos["Eficacia Global (%)"].idxmax(), COL_TECNICO]
+        tot_asignados = df_validos["Casos asignados"].sum()
+        tot_resueltos = df_validos["Cantidad de casos resueltos"].sum()
+        tot_tardios  = df_validos["Cantidad de casos tardíos"].sum()
+        pendientes   = max(tot_asignados - tot_resueltos, 0)
+        n_tecnicos   = df_validos[COL_TECNICO].nunique()
 
-        # ==========================
-        # TARJETAS DE RESUMEN
-        # ==========================
         eficiencia_prom = round(df_validos["Eficiencia (%)"].mean(), 2)
-        sla_prom = round(df_validos["Cumplimiento SLA (%)"].mean(), 2)
+        sla_prom        = round(df_validos["Cumplimiento SLA (%)"].mean(), 2)
+        eficacia_prom   = round(df_validos["Eficacia Global (%)"].mean(), 2)
 
-        st.markdown("## 📊 Resumen General")
-        col1, col2, col3, col4 = st.columns(4)
-        col1.markdown(f"""
-        <div class='metric-card'>
-            <div class='metric-value'>{eficiencia_prom}%</div>
-            <div class='metric-label'>Eficiencia Promedio</div>
-        </div>""", unsafe_allow_html=True)
-        col2.markdown(f"""
-        <div class='metric-card'>
-            <div class='metric-value'>{sla_prom}%</div>
-            <div class='metric-label'>Cumplimiento SLA</div>
-        </div>""", unsafe_allow_html=True)
-        col3.markdown(f"""
-        <div class='metric-card'>
-            <div class='metric-value'>{mas_solicitado}</div>
-            <div class='metric-label'>Técnico más solicitado</div>
-        </div>""", unsafe_allow_html=True)
-        col4.markdown(f"""
-        <div class='metric-card'>
-            <div class='metric-value'>{mejor}</div>
-            <div class='metric-label'>Mejor Técnico</div>
-        </div>""", unsafe_allow_html=True)
+        eff_grupo = (tot_resueltos / (tot_asignados + 1e-9)) * 100
+        sla_grupo = ((tot_resueltos - tot_tardios) / (tot_resueltos + 1e-9)) * 100
+        efc_grupo = ((tot_resueltos - tot_tardios) / (tot_asignados + 1e-9)) * 100
+        indice_salud = round((eff_grupo + sla_grupo + efc_grupo) / 3, 2)
+
+        # ==========================
+        # DESTACADOS
+        # ==========================
+        mejor          = df_validos.loc[df_validos["Rendimiento Global"].idxmax(), COL_TECNICO] if len(df_validos) else "—"
+        mas_solicitado = df_validos.loc[df_validos["Casos asignados"].idxmax(), COL_TECNICO]    if len(df_validos) else "—"
+        mas_eficaz     = df_validos.loc[df_validos["Eficacia Global (%)"].idxmax(), COL_TECNICO] if len(df_validos) else "—"
+        mas_eficaz_val = round(df_validos["Eficacia Global (%)"].max(), 2) if len(df_validos) else 0.0
+        peor           = df_validos.loc[df_validos["Rendimiento Global"].idxmin(), COL_TECNICO] if len(df_validos) else "—"
+
+        # ==========================
+        # RESUMEN GENERAL (AMPLIADO)
+        # ==========================
+        st.markdown("## <span class='badge'>📊 Resumen General</span>", unsafe_allow_html=True)
+
+        c1,c2,c3,c4 = st.columns(4)
+        c1.markdown(f"<div class='metric-card'><div class='metric-value'>{eficiencia_prom:.2f}%</div><div class='metric-label'>Eficiencia Promedio</div></div>", unsafe_allow_html=True)
+        c2.markdown(f"<div class='metric-card'><div class='metric-value'>{sla_prom:.2f}%</div><div class='metric-label'>Cumplimiento SLA Promedio</div></div>", unsafe_allow_html=True)
+        c3.markdown(f"<div class='metric-card'><div class='metric-value'>{eficacia_prom:.2f}%</div><div class='metric-label'>Eficacia Promedio</div></div>", unsafe_allow_html=True)
+        c4.markdown(f"<div class='metric-card'><div class='metric-value'>{indice_salud:.2f}%</div><div class='metric-label'>Salud del Grupo</div></div>", unsafe_allow_html=True)
+
+        c5,c6,c7,c8 = st.columns(4)
+        c5.markdown(f"<div class='metric-card'><div class='metric-value'>{mas_solicitado}</div><div class='metric-label'>Técnico más solicitado</div></div>", unsafe_allow_html=True)
+        c6.markdown(f"<div class='metric-card'><div class='metric-value'>{mejor}</div><div class='metric-label'>Mejor Técnico (Rend. Global)</div></div>", unsafe_allow_html=True)
+        c7.markdown(f"<div class='metric-card'><div class='metric-value'>{mas_eficaz}</div><div class='metric-label'>Técnico más eficaz ({mas_eficaz_val:.2f}%)</div></div>", unsafe_allow_html=True)
+        c8.markdown(f"<div class='metric-card'><div class='metric-value'>{peor}</div><div class='metric-label'>Técnico con menor rendimiento</div></div>", unsafe_allow_html=True)
+
+        st.markdown("<hr>", unsafe_allow_html=True)
+
+        # Totales rápidos
+        st.markdown(f"**📦 Totales** — Asignados: **{int(tot_asignados)}**, Resueltos: **{int(tot_resueltos)}**, Tardíos: **{int(tot_tardios)}**, Pendientes: **{int(pendientes)}** · Técnicos analizados: **{n_tecnicos}**")
 
         st.markdown("<hr>", unsafe_allow_html=True)
 
@@ -174,29 +166,26 @@ if uploaded_file:
         fig1.update_layout(template="plotly_dark", title="📦 Casos por Técnico", barmode="group")
         st.plotly_chart(fig1, use_container_width=True)
 
-        fig2 = px.bar(df_validos, x=COL_TECNICO, y="Rendimiento Global", color="Rendimiento Global",
-                      text_auto=".2f", color_continuous_scale="Viridis", title="⚙️ Rendimiento Global por Técnico")
+        fig2 = px.bar(
+            df_validos, x=COL_TECNICO, y="Rendimiento Global",
+            color="Rendimiento Global", text_auto=".2f",
+            color_continuous_scale="Viridis", title="⚙️ Rendimiento Global por Técnico"
+        )
         fig2.update_layout(template="plotly_dark")
         st.plotly_chart(fig2, use_container_width=True)
 
-        fig3 = px.scatter(df_validos, x="Casos asignados", y="Eficacia Global (%)", size="Cantidad de casos resueltos",
-                          color="Eficacia Global (%)", text=COL_TECNICO, color_continuous_scale="Bluered",
-                          title="🎯 Eficacia Global (Casos asignados vs Eficacia)")
+        fig3 = px.scatter(
+            df_validos, x="Casos asignados", y="Eficacia Global (%)",
+            size="Cantidad de casos resueltos", color="Eficacia Global (%)",
+            text=COL_TECNICO, color_continuous_scale="Bluered",
+            title="🎯 Eficacia Global (Casos asignados vs Eficacia)"
+        )
         fig3.update_traces(textposition="top center")
         st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
-        # SALUD DEL GRUPO
+        # SALUD DEL GRUPO (Gauge)
         # ==========================
-        tot_asignados = df_validos["Casos asignados"].sum()
-        tot_resueltos = df_validos["Cantidad de casos resueltos"].sum()
-        tot_tardios = df_validos["Cantidad de casos tardíos"].sum()
-
-        eff_grupo = (tot_resueltos / (tot_asignados + 1e-9)) * 100
-        sla_grupo = ((tot_resueltos - tot_tardios) / (tot_resueltos + 1e-9)) * 100
-        efc_grupo = ((tot_resueltos - tot_tardios) / (tot_asignados + 1e-9)) * 100
-        indice_salud = (eff_grupo + sla_grupo + efc_grupo) / 3
-
         st.markdown("## 👥 Salud del Grupo")
         fig4 = go.Figure(go.Indicator(
             mode="gauge+number",
@@ -223,20 +212,31 @@ if uploaded_file:
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
             nombre_pdf = f"reporte_GIA_{fecha}.pdf"
+
+            # Exportar figuras a imágenes temporales
             temp_imgs = []
             for fig in [fig1, fig2, fig3, fig4]:
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
                 fig.write_image(tmp.name, format="png", width=800, height=500, scale=2)
                 temp_imgs.append(tmp.name)
 
+            # Crear documento
             doc = SimpleDocTemplate(buffer, pagesize=A4)
             styles = getSampleStyleSheet()
-            story = [Paragraph("📘 Reporte GIA", styles["Title"]),
-                     Paragraph(f"Fecha: {fecha}", styles["Normal"]),
-                     Spacer(1, 12)]
+            story = [
+                Paragraph("📘 Reporte GIA", styles["Title"]),
+                Paragraph(f"Fecha: {fecha}", styles["Normal"]),
+                Spacer(1, 10),
+                Paragraph(f"Eficiencia prom: {eficiencia_prom:.2f}% · SLA prom: {sla_prom:.2f}% · Eficacia prom: {eficacia_prom:.2f}% · Salud grupo: {indice_salud:.2f}%", styles["Normal"]),
+                Paragraph(f"Más solicitado: {mas_solicitado} · Mejor técnico: {mejor} · Más eficaz: {mas_eficaz} ({mas_eficaz_val:.2f}%) · Peor: {peor}", styles["Normal"]),
+                Paragraph(f"Totales — Asignados: {int(tot_asignados)}, Resueltos: {int(tot_resueltos)}, Tardíos: {int(tot_tardios)}, Pendientes: {int(pendientes)} · Técnicos: {n_tecnicos}", styles["Normal"]),
+                Spacer(1, 8)
+            ]
+
             for path in temp_imgs:
                 story.append(Image(path, width=6.2*inch, height=3.8*inch))
                 story.append(Spacer(1, 8))
+
             doc.build(story)
             pdf = buffer.getvalue()
             buffer.close()
