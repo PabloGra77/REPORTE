@@ -75,6 +75,9 @@ if uploaded_file:
         df["Eficiencia (%)"] = (df[COL_RESUELTOS] / (df[COL_ASIGNADOS] + 1e-9)) * 100
         df["Cumplimiento SLA (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_RESUELTOS] + 1e-9)) * 100
 
+        # Nueva métrica: Eficacia Global
+        df["Eficacia Global (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_ASIGNADOS] + 1e-9)) * 100
+
         # Limpiar técnicos inactivos
         df_validos = df[(df[COL_ASIGNADOS] > 0) | (df[COL_RESUELTOS] > 0)].copy()
 
@@ -115,14 +118,6 @@ if uploaded_file:
         """)
 
         # ==========================
-        # COMPARATIVA DEL MEJOR VS MÁS SOLICITADO
-        # ==========================
-        if tecnico_mas_solicitado != "—" and mejor_tecnico != "—":
-            comp_df = df_validos[df_validos[COL_TECNICO].isin([tecnico_mas_solicitado, mejor_tecnico])]
-            st.subheader("⚖️ Comparativa entre el técnico más solicitado y el de mejor rendimiento")
-            st.dataframe(comp_df[[COL_TECNICO, COL_ASIGNADOS, COL_RESUELTOS, "Eficiencia (%)", "Cumplimiento SLA (%)", "Rendimiento Global"]])
-
-        # ==========================
         # GRÁFICOS
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
@@ -148,7 +143,7 @@ if uploaded_file:
         )
         st.plotly_chart(fig1, use_container_width=True)
 
-        # --- Gráfico de rendimiento global ---
+        # --- Rendimiento Global ---
         st.subheader("🏆 Rendimiento Global por Técnico (ponderado)")
         fig2 = px.bar(
             df_validos.sort_values("Rendimiento Global", ascending=False),
@@ -158,6 +153,22 @@ if uploaded_file:
         )
         fig2.update_layout(template="plotly_dark", bargap=0.3)
         st.plotly_chart(fig2, use_container_width=True)
+
+        # --- NUEVO: Eficacia Global ---
+        st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
+        fig3 = px.scatter(
+            df_validos,
+            x=COL_ASIGNADOS,
+            y="Eficacia Global (%)",
+            size=COL_RESUELTOS,
+            color="Eficacia Global (%)",
+            hover_name=COL_TECNICO,
+            color_continuous_scale="Bluered",
+            title="Eficacia del Técnico según el volumen de casos asignados",
+        )
+        fig3.update_traces(marker=dict(line=dict(width=1, color="DarkSlateGrey")))
+        fig3.update_layout(template="plotly_dark")
+        st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
         # DESCARGA RESULTADOS
