@@ -8,7 +8,6 @@ from io import BytesIO
 # ==========================
 st.set_page_config(page_title="Panel GIA", page_icon="🤖", layout="wide")
 
-# Encabezado principal
 st.markdown("""
 <style>
     .title {
@@ -30,21 +29,27 @@ st.markdown('<div class="title">🤖 Panel de Estadísticas GIA</div>', unsafe_a
 st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia para el Soporte</div>', unsafe_allow_html=True)
 
 st.markdown("""
-Sube tu archivo **Excel (.xlsx)** exportado del sistema **GIA** para generar automáticamente los reportes y estadísticas de rendimiento técnico.  
+Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
+para generar automáticamente los reportes y estadísticas de rendimiento técnico.  
 Incluye cálculos de eficiencia, cumplimiento de SLA y comparativos visuales por técnico.  
 """)
 
 # ==========================
 # SUBIR ARCHIVO
 # ==========================
-uploaded_file = st.file_uploader("📁 Cargar archivo Excel (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("📁 Cargar archivo Excel o CSV", type=["xlsx", "csv"])
 
 # ==========================
 # PROCESAR DATOS
 # ==========================
 if uploaded_file:
     try:
-        df = pd.read_excel(uploaded_file)
+        # Detectar formato
+        if uploaded_file.name.endswith(".csv"):
+            df = pd.read_csv(uploaded_file, sep=None, engine="python")
+        else:
+            df = pd.read_excel(uploaded_file)
+
         df = df.fillna(0)
 
         # Convertir columnas numéricas
@@ -109,4 +114,4 @@ if uploaded_file:
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
 else:
-    st.info("📄 Sube un archivo Excel del sistema GIA para comenzar el análisis.")
+    st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
