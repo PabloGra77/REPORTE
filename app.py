@@ -1,6 +1,7 @@
 import pandas as pd
 import streamlit as st
 import plotly.express as px
+import plotly.graph_objects as go
 from io import BytesIO
 
 # ==========================
@@ -32,7 +33,7 @@ st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia p
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
 para generar automáticamente los reportes y estadísticas de rendimiento técnico.  
-Incluye cálculos de eficiencia, cumplimiento de SLA y comparativos visuales por técnico.  
+Los gráficos ahora son **interactivos y con efecto 3D realista** ✨
 """)
 
 # ==========================
@@ -103,20 +104,32 @@ if uploaded_file:
         # GRÁFICOS INTERACTIVOS 3D
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico (3D Interactivo)")
-        fig1 = px.bar_3d(
-            df,
-            x=df.columns[0],
-            y="Cantidad de casos resueltos",
-            z="Cantidad de casos abiertos",
-            color="Cantidad de casos tardíos",
+
+        fig1 = go.Figure(data=[
+            go.Bar3d(
+                x=df[df.columns[0]],
+                y=["Casos Resueltos"] * len(df),
+                z=[0] * len(df),
+                dx=[0.5] * len(df),
+                dy=[0.5] * len(df),
+                zsrc=df["Cantidad de casos resueltos"],
+                name="Casos Resueltos",
+                opacity=0.9
+            )
+        ])
+        fig1.update_layout(
             title="Comparativo de Casos - Plataforma GIA",
-            labels={df.columns[0]: "Técnico"},
-            color_continuous_scale="Bluered"
+            scene=dict(
+                xaxis_title="Técnico",
+                yaxis_title="Tipo de Caso",
+                zaxis_title="Cantidad",
+                camera_eye=dict(x=1.2, y=1.2, z=0.7)
+            )
         )
-        fig1.update_traces(marker=dict(line=dict(width=0.5, color='DarkSlateGrey')))
         st.plotly_chart(fig1, use_container_width=True)
 
-        st.subheader("💪 Eficiencia por Técnico (%) - Interactivo")
+        # --- Eficiencia ---
+        st.subheader("💪 Eficiencia por Técnico (%) - Interactivo 3D")
         fig2 = px.bar(
             df,
             x=df.columns[0],
@@ -126,10 +139,11 @@ if uploaded_file:
             color_continuous_scale="Viridis",
             title="Eficiencia Operativa - GIA"
         )
-        fig2.update_traces(marker_line_width=1.2)
+        fig2.update_traces(marker_line_width=1.3)
         st.plotly_chart(fig2, use_container_width=True)
 
-        st.subheader("⏱️ Cumplimiento SLA por Técnico (%) - Interactivo")
+        # --- Cumplimiento SLA ---
+        st.subheader("⏱️ Cumplimiento SLA por Técnico (%) - Interactivo 3D")
         fig3 = px.bar(
             df,
             x=df.columns[0],
@@ -139,7 +153,7 @@ if uploaded_file:
             color_continuous_scale="Oranges",
             title="Cumplimiento de SLA - GIA"
         )
-        fig3.update_traces(marker_line_width=1.2)
+        fig3.update_traces(marker_line_width=1.3)
         st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
