@@ -191,6 +191,7 @@ if uploaded_file:
         # ==========================
         output = BytesIO()
         df_validos.to_excel(output, index=False, engine='openpyxl')
+
         st.download_button(
             label="⬇️ Descargar reporte Excel con estadísticas GIA",
             data=output.getvalue(),
@@ -200,10 +201,6 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
-else:
-    st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
 
-    except Exception as e:
-        st.error(f"❌ Error al procesar el archivo: {e}")
 else:
     st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
