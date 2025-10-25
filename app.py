@@ -9,7 +9,6 @@ from reportlab.lib.units import inch
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
 from reportlab.lib.styles import getSampleStyleSheet
 import tempfile
-import base64
 
 # ==========================
 # CONFIGURACIÓN GLOBAL
@@ -34,11 +33,6 @@ body {
     justify-content: flex-start;
     box-shadow: 0 0 20px rgba(255,159,28,0.3);
     margin-bottom: 25px;
-}
-.banner img {
-    height: 70px;
-    margin-right: 15px;
-    border-radius: 8px;
 }
 .banner-text {
     font-size: 32px;
@@ -71,21 +65,10 @@ hr {border:0;height:1px;background:#333;margin:25px 0;}
 """, unsafe_allow_html=True)
 
 # ============
-# CARGAR LOGO GIA LOCAL (base64)
+# ENCABEZADO GIA (SIN LOGO)
 # ============
-def get_logo_base64():
-    with open("logo-GLPI-250-black.png", "rb") as f:
-        data = f.read()
-    return base64.b64encode(data).decode()
-
-logo_base64 = get_logo_base64()
-
-# ============
-# ENCABEZADO GIA
-# ============
-st.markdown(f"""
+st.markdown("""
 <div class="banner">
-    <img src="data:image/png;base64,{logo_base64}" alt="Logo GIA">
     <div>
         <div class="banner-text">🤖 GIA - Panel de Estadísticas</div>
         <div class="banner-sub">IPS Goleman | Inteligencia para el Soporte</div>
