@@ -32,7 +32,7 @@ st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia p
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
 para generar reportes de rendimiento técnico.  
-> *Nota:* La columna “Cantidad de casos abiertos” se interpreta como “Casos asignados”.
+> *Nota:* La columna **“Cantidad de casos abiertos”** se interpreta como **“Casos asignados”**.
 """)
 
 # ==========================
@@ -53,44 +53,45 @@ if uploaded_file:
 
         df = df.fillna(0)
 
-        # Definir columnas
+        # Definir columnas base
         COL_TECNICO   = df.columns[0]
         COL_ASIGNADOS = "Casos asignados"
         COL_RESUELTOS = "Cantidad de casos resueltos"
         COL_TARDIOS   = "Cantidad de casos tardíos"
 
+        # Alias "Casos asignados" desde "Cantidad de casos abiertos" si existe
         if "Cantidad de casos abiertos" in df.columns:
             df[COL_ASIGNADOS] = df["Cantidad de casos abiertos"]
+        elif COL_ASIGNADOS not in df.columns:
+            df[COL_ASIGNADOS] = 0
 
-        # Limpiar técnicos vacíos
+        # Limpiar nombres de técnico
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
         df = df[~df.iloc[:, 0].isin(["", "0", "nan", "None"])].reset_index(drop=True)
 
-        # Convertir columnas numéricas
+        # Convertir a numérico
         for c in [COL_ASIGNADOS, COL_RESUELTOS, COL_TARDIOS]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
         # ==========================
-        # CÁLCULOS DE MÉTRICAS
+        # MÉTRICAS INDIVIDUALES
         # ==========================
         df["Eficiencia (%)"] = (df[COL_RESUELTOS] / (df[COL_ASIGNADOS] + 1e-9)) * 100
         df["Cumplimiento SLA (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_RESUELTOS] + 1e-9)) * 100
         df["Eficacia Global (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_ASIGNADOS] + 1e-9)) * 100
 
-        # Limpiar técnicos inactivos
+        # Técnicos activos
         df_validos = df[(df[COL_ASIGNADOS] > 0) | (df[COL_RESUELTOS] > 0)].copy()
 
-        # Rendimiento Global ponderado
-        max_asignados = df_validos[COL_ASIGNADOS].max()
+        # Rendimiento Global ponderado (para ranking individual)
+        max_asignados = df_validos[COL_ASIGNADOS].max() if len(df_validos) else 1
         df_validos["Rendimiento Global"] = (
             ((df_validos["Eficiencia (%)"] + df_validos["Cumplimiento SLA (%)"]) / 2)
             * ((1 + (df_validos[COL_ASIGNADOS] / max_asignados)) / 2)
         )
 
-        # ==========================
-        # IDENTIFICAR TÉCNICOS DESTACADOS
-        # ==========================
+        # Destacados
         if len(df_validos) > 0:
             mejor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmax(), 0]
             tecnico_mas_solicitado = df_validos.iloc[df_validos[COL_ASIGNADOS].idxmax(), 0]
@@ -101,18 +102,15 @@ if uploaded_file:
             mejor_tecnico = tecnico_mas_solicitado = tecnico_mas_eficaz = peor_tecnico = "—"
             eficacia_valor = 0.0
 
-        eficiencia_prom = round(df_validos["Eficiencia (%)"].mean(), 2)
-        sla_prom = round(df_validos["Cumplimiento SLA (%)"].mean(), 2)
+        eficiencia_prom = round(df_validos["Eficiencia (%)"].mean(), 2) if len(df_validos) else 0.0
+        sla_prom = round(df_validos["Cumplimiento SLA (%)"].mean(), 2) if len(df_validos) else 0.0
 
         # ==========================
-        # TABLA DE RESULTADOS
+        # TABLA + RESUMEN
         # ==========================
         st.subheader("📋 Tabla de resultados")
         st.dataframe(df_validos, use_container_width=True)
 
-        # ==========================
-        # RESUMEN GENERAL
-        # ==========================
         st.markdown(f"""
         ### 📊 Resumen General
         - 🧩 **Eficiencia promedio:** {eficiencia_prom}%
@@ -124,151 +122,105 @@ if uploaded_file:
         """)
 
         # ==========================
-        # COMPARATIVA ENTRE TÉCNICOS CLAVE
-        # ==========================
-        if tecnico_mas_solicitado != "—" and mejor_tecnico != "—":
-            comp_df = df_validos[df_validos[COL_TECNICO].isin([tecnico_mas_solicitado, mejor_tecnico, tecnico_mas_eficaz])]
-            st.subheader("⚖️ Comparativa entre técnicos destacados")
-            st.dataframe(comp_df[[COL_TECNICO, COL_ASIGNADOS, COL_RESUELTOS, "Eficiencia (%)", "Cumplimiento SLA (%)", "Eficacia Global (%)", "Rendimiento Global"]])
-
-        # ==========================
-        # GRÁFICO 1 - Casos
+        # GRÁFICOS INDIVIDUALES
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1 = go.Figure()
-        fig1.add_trace(go.Bar(
-            x=df_validos[COL_TECNICO], y=df_validos[COL_ASIGNADOS],
-            name="Casos Asignados", marker=dict(color="rgba(58,134,255,0.8)")
-        ))
-        fig1.add_trace(go.Bar(
-            x=df_validos[COL_TECNICO], y=df_validos[COL_RESUELTOS],
-            name="Casos Resueltos", marker=dict(color="rgba(255,159,28,0.8)")
-        ))
-        fig1.add_trace(go.Bar(
-            x=df_validos[COL_TECNICO], y=df_validos[COL_TARDIOS],
-            name="Casos Tardíos", marker=dict(color="rgba(255,70,70,0.8)")
-        ))
-        fig1.update_layout(
-            barmode='group',
-            title="Comparativo de Casos Asignados / Resueltos / Tardíos",
-            template="plotly_dark",
-            xaxis_title="Técnico",
-            yaxis_title="Cantidad de Casos"
-        )
+        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos[COL_ASIGNADOS],
+                              name="Casos Asignados", marker=dict(color="rgba(58,134,255,0.8)")))
+        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos[COL_RESUELTOS],
+                              name="Casos Resueltos", marker=dict(color="rgba(255,159,28,0.8)")))
+        fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos[COL_TARDIOS],
+                              name="Casos Tardíos", marker=dict(color="rgba(255,70,70,0.8)")))
+        fig1.update_layout(barmode='group', template="plotly_dark",
+                           title="Comparativo de Casos Asignados / Resueltos / Tardíos",
+                           xaxis_title="Técnico", yaxis_title="Cantidad de Casos")
         st.plotly_chart(fig1, use_container_width=True)
 
-        # ==========================
-        # GRÁFICO 2 - Rendimiento Global
-        # ==========================
         st.subheader("🏆 Rendimiento Global por Técnico (ponderado)")
-        fig2 = px.bar(
-            df_validos.sort_values("Rendimiento Global", ascending=False),
-            x=COL_TECNICO, y="Rendimiento Global",
-            text_auto=".2f", color="Rendimiento Global",
-            color_continuous_scale="Viridis"
-        )
+        fig2 = px.bar(df_validos.sort_values("Rendimiento Global", ascending=False),
+                      x=COL_TECNICO, y="Rendimiento Global",
+                      text_auto=".2f", color="Rendimiento Global",
+                      color_continuous_scale="Viridis")
         fig2.update_layout(template="plotly_dark", bargap=0.3)
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ==========================
-        # GRÁFICO 3 - Eficacia Global
-        # ==========================
         st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
-        fig3 = px.scatter(
-            df_validos,
-            x=COL_ASIGNADOS,
-            y="Eficacia Global (%)",
-            size=COL_RESUELTOS,
-            color="Eficacia Global (%)",
-            text=COL_TECNICO,
-            hover_name=COL_TECNICO,
-            color_continuous_scale="Bluered",
-            title="Eficacia del Técnico según el volumen de casos asignados",
-        )
-        fig3.update_traces(
-            textposition="top center",
-            marker=dict(line=dict(width=1, color="DarkSlateGrey"), opacity=0.8)
-        )
-
-        prom_eficacia = df_validos["Eficacia Global (%)"].mean()
-        fig3.add_hline(
-            y=prom_eficacia,
-            line_dash="dot",
-            line_color="white",
-            annotation_text=f"Promedio global: {prom_eficacia:.2f}%",
-            annotation_position="bottom right",
-            annotation_font_size=12
-        )
-
-        fig3.update_layout(
-            template="plotly_dark",
-            xaxis_title="Casos Asignados (Volumen de trabajo)",
-            yaxis_title="Eficacia Global (%)",
-            font=dict(size=12),
-            height=600
-        )
+        fig3 = px.scatter(df_validos, x=COL_ASIGNADOS, y="Eficacia Global (%)",
+                          size=COL_RESUELTOS, color="Eficacia Global (%)",
+                          text=COL_TECNICO, hover_name=COL_TECNICO,
+                          color_continuous_scale="Bluered",
+                          title="Eficacia del Técnico según el volumen de casos asignados")
+        fig3.update_traces(textposition="top center",
+                           marker=dict(line=dict(width=1, color="DarkSlateGrey"), opacity=0.8))
+        prom_eficacia = df_validos["Eficacia Global (%)"].mean() if len(df_validos) else 0.0
+        fig3.add_hline(y=prom_eficacia, line_dash="dot", line_color="white",
+                       annotation_text=f"Promedio global: {prom_eficacia:.2f}%",
+                       annotation_position="bottom right", annotation_font_size=12)
+        fig3.update_layout(template="plotly_dark",
+                           xaxis_title="Casos Asignados (Volumen de trabajo)",
+                           yaxis_title="Eficacia Global (%)", height=600)
         st.plotly_chart(fig3, use_container_width=True)
 
-        # ==========================
-        # ANÁLISIS POR GRUPO TÉCNICO
-        # ==========================
-        if "Grupo Técnico" in df_validos.columns or "Grupo" in df_validos.columns:
-            COL_GRUPO = "Grupo Técnico" if "Grupo Técnico" in df_validos.columns else "Grupo"
+        # =========================================================
+        # 🆕 SALUD DEL GRUPO (TODOS LOS TÉCNICOS) - NUEVO BLOQUE
+        # =========================================================
+        st.subheader("👥 Salud del Grupo (Todos los técnicos)")
 
-            st.subheader("👥 Eficiencia por Grupo Técnico")
+        # Totales del equipo
+        tot_asignados = df_validos[COL_ASIGNADOS].sum()
+        tot_resueltos = df_validos[COL_RESUELTOS].sum()
+        tot_tardios   = df_validos[COL_TARDIOS].sum()
 
-            grupo_df = (
-                df_validos
-                .groupby(COL_GRUPO)
-                .agg({
-                    COL_ASIGNADOS: "sum",
-                    COL_RESUELTOS: "sum",
-                    COL_TARDIOS: "sum"
-                })
-                .reset_index()
-            )
+        # Evitar negativos en pendientes
+        pendientes = max(tot_asignados - tot_resueltos, 0)
 
-            grupo_df["Eficiencia Grupo (%)"] = (grupo_df[COL_RESUELTOS] / (grupo_df[COL_ASIGNADOS] + 1e-9)) * 100
-            grupo_df["Eficacia Grupo (%)"] = ((grupo_df[COL_RESUELTOS] - grupo_df[COL_TARDIOS]) / (grupo_df[COL_ASIGNADOS] + 1e-9)) * 100
+        # Métricas de grupo
+        eff_grupo  = (tot_resueltos / (tot_asignados + 1e-9)) * 100
+        sla_grupo  = ((tot_resueltos - tot_tardios) / (tot_resueltos + 1e-9)) * 100
+        efc_grupo  = ((tot_resueltos - tot_tardios) / (tot_asignados + 1e-9)) * 100
 
-            st.dataframe(grupo_df, use_container_width=True)
+        indice_salud = (eff_grupo + sla_grupo + efc_grupo) / 3  # índice global del grupo
 
-            eficiencia_total = round(grupo_df["Eficiencia Grupo (%)"].mean(), 2)
-            eficacia_total = round(grupo_df["Eficacia Grupo (%)"].mean(), 2)
+        colA, colB = st.columns(2)
+
+        # Gauge: Índice de Salud del Grupo
+        with colA:
+            fig_gauge = go.Figure(go.Indicator(
+                mode="gauge+number",
+                value=round(indice_salud, 2),
+                number={'suffix': '%'},
+                title={'text': "Índice de Salud del Grupo"},
+                gauge={
+                    'axis': {'range': [0, 100]},
+                    'bar': {'color': '#3A86FF'},
+                    'steps': [
+                        {'range': [0, 60], 'color': 'rgba(255,70,70,0.4)'},
+                        {'range': [60, 80], 'color': 'rgba(255,159,28,0.4)'},
+                        {'range': [80, 100], 'color': 'rgba(60,179,113,0.4)'}
+                    ],
+                    'threshold': {'line': {'color': 'white', 'width': 3}, 'thickness': 0.75, 'value': round(indice_salud, 2)}
+                }
+            ))
+            fig_gauge.update_layout(template="plotly_dark", height=300, margin=dict(l=40, r=40, t=60, b=20))
+            st.plotly_chart(fig_gauge, use_container_width=True)
 
             st.markdown(f"""
-            ### 📈 Desempeño Global de los Grupos
-            - ⚙️ **Eficiencia promedio general:** {eficiencia_total} %
-            - 💥 **Eficacia promedio general:** {eficacia_total} %
+            **Detalle (grupo):**  
+            - ⚙️ Eficiencia: **{eff_grupo:.2f}%**  
+            - ⏱️ SLA: **{sla_grupo:.2f}%**  
+            - 💥 Eficacia: **{efc_grupo:.2f}%**
             """)
 
-            grupo_mas_eficiente = grupo_df.iloc[grupo_df["Eficiencia Grupo (%)"].idxmax(), 0]
-            st.success(f"🏆 El grupo más eficiente es **{grupo_mas_eficiente}**, con {grupo_df['Eficiencia Grupo (%)'].max():.2f}% de eficiencia.")
-
-            fig4 = go.Figure()
-            fig4.add_trace(go.Bar(
-                x=grupo_df[COL_GRUPO],
-                y=grupo_df["Eficiencia Grupo (%)"],
-                name="Eficiencia (%)",
-                marker_color="rgba(58,134,255,0.8)"
-            ))
-            fig4.add_trace(go.Bar(
-                x=grupo_df[COL_GRUPO],
-                y=grupo_df["Eficacia Grupo (%)"],
-                name="Eficacia (%)",
-                marker_color="rgba(255,159,28,0.8)"
-            ))
-            fig4.update_layout(
-                barmode='group',
-                title="Eficiencia y Eficacia por Grupo Técnico",
-                xaxis_title="Grupo Técnico",
-                yaxis_title="Porcentaje (%)",
-                template="plotly_dark"
-            )
-            st.plotly_chart(fig4, use_container_width=True)
-
-        else:
-            st.info("ℹ️ No se encontró la columna 'Grupo Técnico' en el archivo. Agrega esta columna para analizar por equipo.")
+        # Donut: composición del estado del grupo
+        with colB:
+            labels = ["Resueltos a tiempo", "Resueltos tardíos", "Pendientes"]
+            values = [max(tot_resueltos - tot_tardios, 0), max(tot_tardios, 0), pendientes]
+            fig_donut = go.Figure(go.Pie(labels=labels, values=values, hole=0.55))
+            fig_donut.update_traces(textinfo='percent+label')
+            fig_donut.update_layout(title="Composición del estado del grupo",
+                                    template="plotly_dark", height=300, margin=dict(l=40, r=40, t=60, b=20))
+            st.plotly_chart(fig_donut, use_container_width=True)
 
         # ==========================
         # DESCARGA RESULTADOS
