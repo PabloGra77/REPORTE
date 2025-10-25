@@ -32,7 +32,7 @@ st.markdown('<div class="subtitle">IPS Goleman | Plataforma GIA - Inteligencia p
 st.markdown("""
 Sube tu archivo **Excel (.xlsx)** o **CSV (.csv)** exportado del sistema **GIA**  
 para generar reportes de rendimiento técnico.  
-> *Nota:* La columna **“Cantidad de casos abiertos”** se interpreta como **“Casos asignados”**.
+> *Nota:* La columna “Cantidad de casos abiertos” se interpreta como “Casos asignados”.
 """)
 
 # ==========================
@@ -53,45 +53,56 @@ if uploaded_file:
 
         df = df.fillna(0)
 
-        # Definir columnas base
+        # Definir columnas
         COL_TECNICO   = df.columns[0]
         COL_ASIGNADOS = "Casos asignados"
         COL_RESUELTOS = "Cantidad de casos resueltos"
         COL_TARDIOS   = "Cantidad de casos tardíos"
 
-        # Alias "Casos asignados" desde "Cantidad de casos abiertos" si existe
         if "Cantidad de casos abiertos" in df.columns:
             df[COL_ASIGNADOS] = df["Cantidad de casos abiertos"]
-        elif COL_ASIGNADOS not in df.columns:
-            df[COL_ASIGNADOS] = 0
 
-        # Limpiar nombres de técnico
+        # Limpiar técnicos vacíos
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
         df = df[~df.iloc[:, 0].isin(["", "0", "nan", "None"])].reset_index(drop=True)
 
-        # Convertir a numérico
+        # Convertir columnas numéricas
         for c in [COL_ASIGNADOS, COL_RESUELTOS, COL_TARDIOS]:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
         # ==========================
-        # MÉTRICAS INDIVIDUALES
+        # SELECCIÓN DE TÉCNICOS A EXCLUIR
+        # ==========================
+        st.subheader("🧹 Filtrar técnicos del análisis")
+        tecnicos = sorted(df[COL_TECNICO].unique())
+        tecnicos_excluir = st.multiselect(
+            "Selecciona técnicos que quieras excluir del reporte (opcional):",
+            options=tecnicos,
+            help="Puedes quitar técnicos para ver cómo cambia el rendimiento general."
+        )
+
+        if tecnicos_excluir:
+            df = df[~df[COL_TECNICO].isin(tecnicos_excluir)]
+
+        # ==========================
+        # CÁLCULOS DE MÉTRICAS
         # ==========================
         df["Eficiencia (%)"] = (df[COL_RESUELTOS] / (df[COL_ASIGNADOS] + 1e-9)) * 100
         df["Cumplimiento SLA (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_RESUELTOS] + 1e-9)) * 100
         df["Eficacia Global (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_ASIGNADOS] + 1e-9)) * 100
 
-        # Técnicos activos
         df_validos = df[(df[COL_ASIGNADOS] > 0) | (df[COL_RESUELTOS] > 0)].copy()
 
-        # Rendimiento Global ponderado (para ranking individual)
         max_asignados = df_validos[COL_ASIGNADOS].max() if len(df_validos) else 1
         df_validos["Rendimiento Global"] = (
             ((df_validos["Eficiencia (%)"] + df_validos["Cumplimiento SLA (%)"]) / 2)
             * ((1 + (df_validos[COL_ASIGNADOS] / max_asignados)) / 2)
         )
 
-        # Destacados
+        # ==========================
+        # IDENTIFICAR TÉCNICOS DESTACADOS
+        # ==========================
         if len(df_validos) > 0:
             mejor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmax(), 0]
             tecnico_mas_solicitado = df_validos.iloc[df_validos[COL_ASIGNADOS].idxmax(), 0]
@@ -106,11 +117,14 @@ if uploaded_file:
         sla_prom = round(df_validos["Cumplimiento SLA (%)"].mean(), 2) if len(df_validos) else 0.0
 
         # ==========================
-        # TABLA + RESUMEN
+        # TABLA DE RESULTADOS
         # ==========================
         st.subheader("📋 Tabla de resultados")
         st.dataframe(df_validos, use_container_width=True)
 
+        # ==========================
+        # RESUMEN GENERAL
+        # ==========================
         st.markdown(f"""
         ### 📊 Resumen General
         - 🧩 **Eficiencia promedio:** {eficiencia_prom}%
@@ -122,7 +136,7 @@ if uploaded_file:
         """)
 
         # ==========================
-        # GRÁFICOS INDIVIDUALES
+        # GRÁFICO 1 - Casos
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1 = go.Figure()
@@ -137,54 +151,24 @@ if uploaded_file:
                            xaxis_title="Técnico", yaxis_title="Cantidad de Casos")
         st.plotly_chart(fig1, use_container_width=True)
 
-        st.subheader("🏆 Rendimiento Global por Técnico (ponderado)")
-        fig2 = px.bar(df_validos.sort_values("Rendimiento Global", ascending=False),
-                      x=COL_TECNICO, y="Rendimiento Global",
-                      text_auto=".2f", color="Rendimiento Global",
-                      color_continuous_scale="Viridis")
-        fig2.update_layout(template="plotly_dark", bargap=0.3)
-        st.plotly_chart(fig2, use_container_width=True)
+        # ==========================
+        # BLOQUE NUEVO - SALUD DEL GRUPO
+        # ==========================
+        st.subheader("👥 Salud del Grupo (Todos los técnicos en análisis)")
 
-        st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
-        fig3 = px.scatter(df_validos, x=COL_ASIGNADOS, y="Eficacia Global (%)",
-                          size=COL_RESUELTOS, color="Eficacia Global (%)",
-                          text=COL_TECNICO, hover_name=COL_TECNICO,
-                          color_continuous_scale="Bluered",
-                          title="Eficacia del Técnico según el volumen de casos asignados")
-        fig3.update_traces(textposition="top center",
-                           marker=dict(line=dict(width=1, color="DarkSlateGrey"), opacity=0.8))
-        prom_eficacia = df_validos["Eficacia Global (%)"].mean() if len(df_validos) else 0.0
-        fig3.add_hline(y=prom_eficacia, line_dash="dot", line_color="white",
-                       annotation_text=f"Promedio global: {prom_eficacia:.2f}%",
-                       annotation_position="bottom right", annotation_font_size=12)
-        fig3.update_layout(template="plotly_dark",
-                           xaxis_title="Casos Asignados (Volumen de trabajo)",
-                           yaxis_title="Eficacia Global (%)", height=600)
-        st.plotly_chart(fig3, use_container_width=True)
-
-        # =========================================================
-        # 🆕 SALUD DEL GRUPO (TODOS LOS TÉCNICOS) - NUEVO BLOQUE
-        # =========================================================
-        st.subheader("👥 Salud del Grupo (Todos los técnicos)")
-
-        # Totales del equipo
         tot_asignados = df_validos[COL_ASIGNADOS].sum()
         tot_resueltos = df_validos[COL_RESUELTOS].sum()
-        tot_tardios   = df_validos[COL_TARDIOS].sum()
-
-        # Evitar negativos en pendientes
+        tot_tardios = df_validos[COL_TARDIOS].sum()
         pendientes = max(tot_asignados - tot_resueltos, 0)
 
-        # Métricas de grupo
-        eff_grupo  = (tot_resueltos / (tot_asignados + 1e-9)) * 100
-        sla_grupo  = ((tot_resueltos - tot_tardios) / (tot_resueltos + 1e-9)) * 100
-        efc_grupo  = ((tot_resueltos - tot_tardios) / (tot_asignados + 1e-9)) * 100
-
-        indice_salud = (eff_grupo + sla_grupo + efc_grupo) / 3  # índice global del grupo
+        eff_grupo = (tot_resueltos / (tot_asignados + 1e-9)) * 100
+        sla_grupo = ((tot_resueltos - tot_tardios) / (tot_resueltos + 1e-9)) * 100
+        efc_grupo = ((tot_resueltos - tot_tardios) / (tot_asignados + 1e-9)) * 100
+        indice_salud = (eff_grupo + sla_grupo + efc_grupo) / 3
 
         colA, colB = st.columns(2)
 
-        # Gauge: Índice de Salud del Grupo
+        # Gauge: Índice de salud
         with colA:
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
@@ -199,27 +183,27 @@ if uploaded_file:
                         {'range': [60, 80], 'color': 'rgba(255,159,28,0.4)'},
                         {'range': [80, 100], 'color': 'rgba(60,179,113,0.4)'}
                     ],
-                    'threshold': {'line': {'color': 'white', 'width': 3}, 'thickness': 0.75, 'value': round(indice_salud, 2)}
+                    'threshold': {'line': {'color': 'white', 'width': 3}, 'value': round(indice_salud, 2)}
                 }
             ))
-            fig_gauge.update_layout(template="plotly_dark", height=300, margin=dict(l=40, r=40, t=60, b=20))
+            fig_gauge.update_layout(template="plotly_dark", height=300)
             st.plotly_chart(fig_gauge, use_container_width=True)
 
-            st.markdown(f"""
-            **Detalle (grupo):**  
-            - ⚙️ Eficiencia: **{eff_grupo:.2f}%**  
-            - ⏱️ SLA: **{sla_grupo:.2f}%**  
-            - 💥 Eficacia: **{efc_grupo:.2f}%**
-            """)
+            # Interpretación automática
+            if indice_salud < 60:
+                st.error("🔴 El grupo presenta bajo rendimiento general. Requiere acciones correctivas.")
+            elif indice_salud < 80:
+                st.warning("🟡 El grupo mantiene un desempeño aceptable, pero hay áreas de mejora.")
+            else:
+                st.success("🟢 El grupo está operando con excelente rendimiento general.")
 
-        # Donut: composición del estado del grupo
+        # Donut: composición
         with colB:
             labels = ["Resueltos a tiempo", "Resueltos tardíos", "Pendientes"]
             values = [max(tot_resueltos - tot_tardios, 0), max(tot_tardios, 0), pendientes]
             fig_donut = go.Figure(go.Pie(labels=labels, values=values, hole=0.55))
             fig_donut.update_traces(textinfo='percent+label')
-            fig_donut.update_layout(title="Composición del estado del grupo",
-                                    template="plotly_dark", height=300, margin=dict(l=40, r=40, t=60, b=20))
+            fig_donut.update_layout(title="Composición del estado del grupo", template="plotly_dark", height=300)
             st.plotly_chart(fig_donut, use_container_width=True)
 
         # ==========================
@@ -236,6 +220,10 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"❌ Error al procesar el archivo: {e}")
+
+else:
+    st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
+al procesar el archivo: {e}")
 
 else:
     st.info("📄 Sube un archivo Excel o CSV del sistema GIA para comenzar el análisis.")
