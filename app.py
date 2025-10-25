@@ -4,10 +4,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 from io import BytesIO
 from datetime import datetime
+from reportlab.lib import colors
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+)
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
-from reportlab.lib.styles import getSampleStyleSheet
 import tempfile
 
 # ==========================
@@ -42,7 +46,7 @@ hr {border:0;height:1px;background:#333;margin:20px 0;}
 """, unsafe_allow_html=True)
 
 # ============
-# ENCABEZADO (sin logo)
+# ENCABEZADO
 # ============
 st.markdown("""
 <div class="banner">
@@ -60,19 +64,16 @@ uploaded_file = st.file_uploader("📁 Cargar archivo Excel o CSV", type=["xlsx"
 
 if uploaded_file:
     try:
-        # Cargar datos
         if uploaded_file.name.endswith(".csv"):
             df = pd.read_csv(uploaded_file, sep=None, engine="python")
         else:
             df = pd.read_excel(uploaded_file)
         df = df.fillna(0)
 
-        # Identificar columnas base
         COL_TECNICO = df.columns[0]
         if "Cantidad de casos abiertos" in df.columns:
             df["Casos asignados"] = df["Cantidad de casos abiertos"]
 
-        # Limpieza
         df.iloc[:, 0] = df.iloc[:, 0].astype(str).str.strip()
         df = df[~df.iloc[:, 0].isin(["", "0", "nan", "None"])].reset_index(drop=True)
 
@@ -150,10 +151,7 @@ if uploaded_file:
         c8.markdown(f"<div class='metric-card'><div class='metric-value'>{peor}</div><div class='metric-label'>Técnico con menor rendimiento</div></div>", unsafe_allow_html=True)
 
         st.markdown("<hr>", unsafe_allow_html=True)
-
-        # Totales rápidos
-        st.markdown(f"**📦 Totales** — Asignados: **{int(tot_asignados)}**, Resueltos: **{int(tot_resueltos)}**, Tardíos: **{int(tot_tardios)}**, Pendientes: **{int(pendientes)}** · Técnicos analizados: **{n_tecnicos}**")
-
+        st.markdown(f"**📦 Totales** — Asignados: **{int(tot_asignados)}**, Resueltos: **{int(tot_resueltos)}**, Tardíos: **{int(tot_tardios)}**, Pendientes: **{int(pendientes)}** · Técnicos: **{n_tecnicos}**")
         st.markdown("<hr>", unsafe_allow_html=True)
 
         # ==========================
@@ -206,36 +204,91 @@ if uploaded_file:
         st.plotly_chart(fig4, use_container_width=True)
 
         # ==========================
-        # PDF CON GRÁFICOS
+        # PDF PROFESIONAL
         # ==========================
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
             nombre_pdf = f"reporte_GIA_{fecha}.pdf"
 
-            # Exportar figuras a imágenes temporales
             temp_imgs = []
             for fig in [fig1, fig2, fig3, fig4]:
                 tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                fig.write_image(tmp.name, format="png", width=800, height=500, scale=2)
+                fig.write_image(tmp.name, format="png", width=850, height=500, scale=2)
                 temp_imgs.append(tmp.name)
 
-            # Crear documento
-            doc = SimpleDocTemplate(buffer, pagesize=A4)
             styles = getSampleStyleSheet()
-            story = [
-                Paragraph("📘 Reporte GIA", styles["Title"]),
-                Paragraph(f"Fecha: {fecha}", styles["Normal"]),
-                Spacer(1, 10),
-                Paragraph(f"Eficiencia prom: {eficiencia_prom:.2f}% · SLA prom: {sla_prom:.2f}% · Eficacia prom: {eficacia_prom:.2f}% · Salud grupo: {indice_salud:.2f}%", styles["Normal"]),
-                Paragraph(f"Más solicitado: {mas_solicitado} · Mejor técnico: {mejor} · Más eficaz: {mas_eficaz} ({mas_eficaz_val:.2f}%) · Peor: {peor}", styles["Normal"]),
-                Paragraph(f"Totales — Asignados: {int(tot_asignados)}, Resueltos: {int(tot_resueltos)}, Tardíos: {int(tot_tardios)}, Pendientes: {int(pendientes)} · Técnicos: {n_tecnicos}", styles["Normal"]),
-                Spacer(1, 8)
+            style_title = ParagraphStyle(
+                'TitleCenter', parent=styles['Title'], alignment=TA_CENTER,
+                textColor=colors.HexColor("#3A86FF"), fontSize=20
+            )
+            style_subtitle = ParagraphStyle(
+                'Subtitle', parent=styles['Normal'], alignment=TA_CENTER,
+                textColor=colors.HexColor("#FF9F1C"), fontSize=12
+            )
+            style_section = ParagraphStyle(
+                'Section', parent=styles['Heading2'], textColor=colors.HexColor("#3A86FF")
+            )
+            style_text = ParagraphStyle(
+                'BodyText', parent=styles['Normal'], alignment=TA_LEFT, fontSize=11, leading=15
+            )
+
+            doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=40, bottomMargin=30)
+            story = []
+
+            story.append(Paragraph("📘 Reporte GIA", style_title))
+            story.append(Paragraph(f"Fecha del informe: {fecha}", style_subtitle))
+            story.append(Spacer(1, 12))
+
+            data_metrics = [
+                ["Eficiencia Promedio", f"{eficiencia_prom:.2f} %"],
+                ["Cumplimiento SLA Promedio", f"{sla_prom:.2f} %"],
+                ["Eficacia Promedio", f"{eficacia_prom:.2f} %"],
+                ["Salud del Grupo", f"{indice_salud:.2f} %"],
+            ]
+            t = Table(data_metrics, colWidths=[3.2*inch, 1.3*inch])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3A86FF")),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+                ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor("#AAAAAA")),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey])
+            ]))
+            story.append(t)
+            story.append(Spacer(1, 15))
+
+            story.append(Paragraph("👷 Técnicos Destacados", style_section))
+            story.append(Spacer(1, 8))
+            story.append(Paragraph(f"• <b>Técnico más solicitado:</b> {mas_solicitado}", style_text))
+            story.append(Paragraph(f"• <b>Mejor técnico (Rendimiento Global):</b> {mejor}", style_text))
+            story.append(Paragraph(f"• <b>Técnico más eficaz:</b> {mas_eficaz} ({mas_eficaz_val:.2f} %)", style_text))
+            story.append(Paragraph(f"• <b>Técnico con menor rendimiento:</b> {peor}", style_text))
+            story.append(Spacer(1, 10))
+
+            story.append(Paragraph("📦 Totales del periodo", style_section))
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(
+                f"Asignados: <b>{int(tot_asignados)}</b> · "
+                f"Resueltos: <b>{int(tot_resueltos)}</b> · "
+                f"Tardíos: <b>{int(tot_tardios)}</b> · "
+                f"Pendientes: <b>{int(pendientes)}</b> · "
+                f"Técnicos: <b>{n_tecnicos}</b>", style_text
+            ))
+            story.append(Spacer(1, 18))
+
+            titulos_graficos = [
+                "📊 Casos por Técnico",
+                "⚙️ Rendimiento Global por Técnico",
+                "🎯 Eficacia Global",
+                "👥 Salud del Grupo"
             ]
 
-            for path in temp_imgs:
-                story.append(Image(path, width=6.2*inch, height=3.8*inch))
-                story.append(Spacer(1, 8))
+            for i, path in enumerate(temp_imgs):
+                story.append(Paragraph(titulos_graficos[i], style_section))
+                story.append(Spacer(1, 6))
+                story.append(Image(path, width=6.3*inch, height=3.5*inch))
+                story.append(Spacer(1, 12))
 
             doc.build(story)
             pdf = buffer.getvalue()
@@ -248,4 +301,4 @@ if uploaded_file:
     except Exception as e:
         st.error(f"❌ Error: {e}")
 else:
-    st.info("📄 Sube tu archivo Excel o CSV del sistema GIA para comenzar.")
+    st.info("
