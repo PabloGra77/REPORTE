@@ -299,6 +299,3 @@ if uploaded_file:
         st.download_button("📄 Descargar Reporte GIA (PDF)", pdf, nombre_pdf, "application/pdf")
 
     except Exception as e:
-        st.error(f"❌ Error: {e}")
-else:
-    st.info("
