@@ -139,7 +139,7 @@ if uploaded_file:
         """)
 
         # ==========================
-        # GRÁFICOS INDIVIDUALES
+        # 📊 GRÁFICO 1 - CASOS
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1 = go.Figure()
@@ -165,7 +165,59 @@ if uploaded_file:
         st.plotly_chart(fig1, use_container_width=True)
 
         # ==========================
-        # SALUD DEL GRUPO
+        # 🏆 GRÁFICO 2 - RENDIMIENTO GLOBAL
+        # ==========================
+        st.subheader("🏆 Rendimiento Global por Técnico (ponderado)")
+        fig2 = px.bar(
+            df_validos.sort_values("Rendimiento Global", ascending=False),
+            x=COL_TECNICO, y="Rendimiento Global",
+            text_auto=".2f", color="Rendimiento Global",
+            color_continuous_scale="Viridis"
+        )
+        fig2.update_layout(template="plotly_dark", bargap=0.3)
+        st.plotly_chart(fig2, use_container_width=True)
+
+        # ==========================
+        # 💥 GRÁFICO 3 - EFICACIA GLOBAL
+        # ==========================
+        st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
+        fig3 = px.scatter(
+            df_validos,
+            x=COL_ASIGNADOS,
+            y="Eficacia Global (%)",
+            size=COL_RESUELTOS,
+            color="Eficacia Global (%)",
+            text=COL_TECNICO,
+            hover_name=COL_TECNICO,
+            color_continuous_scale="Bluered",
+            title="Eficacia del Técnico según el volumen de casos asignados"
+        )
+        fig3.update_traces(
+            textposition="top center",
+            marker=dict(line=dict(width=1, color="DarkSlateGrey"), opacity=0.8)
+        )
+
+        prom_eficacia = df_validos["Eficacia Global (%)"].mean() if len(df_validos) else 0.0
+        fig3.add_hline(
+            y=prom_eficacia,
+            line_dash="dot",
+            line_color="white",
+            annotation_text=f"Promedio global: {prom_eficacia:.2f}%",
+            annotation_position="bottom right",
+            annotation_font_size=12
+        )
+
+        fig3.update_layout(
+            template="plotly_dark",
+            xaxis_title="Casos Asignados (Volumen de trabajo)",
+            yaxis_title="Eficacia Global (%)",
+            font=dict(size=12),
+            height=600
+        )
+        st.plotly_chart(fig3, use_container_width=True)
+
+        # ==========================
+        # 👥 SALUD DEL GRUPO
         # ==========================
         st.subheader("👥 Salud del Grupo (Todos los técnicos en análisis)")
 
@@ -181,7 +233,7 @@ if uploaded_file:
 
         colA, colB = st.columns(2)
 
-        # Gauge: índice de salud del grupo
+        # Gauge
         with colA:
             fig_gauge = go.Figure(go.Indicator(
                 mode="gauge+number",
@@ -210,7 +262,7 @@ if uploaded_file:
             else:
                 st.success("🟢 El grupo está operando con excelente rendimiento general.")
 
-        # Donut: composición del grupo
+        # Donut
         with colB:
             labels = ["Resueltos a tiempo", "Resueltos tardíos", "Pendientes"]
             values = [max(tot_resueltos - tot_tardios, 0), max(tot_tardios, 0), pendientes]
