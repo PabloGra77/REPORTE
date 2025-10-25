@@ -71,24 +71,26 @@ if uploaded_file:
             if c in df.columns:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-        # Calcular métricas
+        # ==========================
+        # CÁLCULOS DE MÉTRICAS
+        # ==========================
         df["Eficiencia (%)"] = (df[COL_RESUELTOS] / (df[COL_ASIGNADOS] + 1e-9)) * 100
         df["Cumplimiento SLA (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_RESUELTOS] + 1e-9)) * 100
-
-        # Nueva métrica: Eficacia Global
         df["Eficacia Global (%)"] = ((df[COL_RESUELTOS] - df[COL_TARDIOS]) / (df[COL_ASIGNADOS] + 1e-9)) * 100
 
         # Limpiar técnicos inactivos
         df_validos = df[(df[COL_ASIGNADOS] > 0) | (df[COL_RESUELTOS] > 0)].copy()
 
-        # Calcular Rendimiento Global ponderado
+        # Rendimiento Global ponderado
         max_asignados = df_validos[COL_ASIGNADOS].max()
         df_validos["Rendimiento Global"] = (
             ((df_validos["Eficiencia (%)"] + df_validos["Cumplimiento SLA (%)"]) / 2)
             * ((1 + (df_validos[COL_ASIGNADOS] / max_asignados)) / 2)
         )
 
-        # Identificar técnicos destacados
+        # ==========================
+        # IDENTIFICAR TÉCNICOS DESTACADOS
+        # ==========================
         if len(df_validos) > 0:
             mejor_tecnico = df_validos.iloc[df_validos["Rendimiento Global"].idxmax(), 0]
             tecnico_mas_solicitado = df_validos.iloc[df_validos[COL_ASIGNADOS].idxmax(), 0]
@@ -106,7 +108,7 @@ if uploaded_file:
         st.dataframe(df_validos, use_container_width=True)
 
         # ==========================
-        # RESUMEN
+        # RESUMEN GENERAL
         # ==========================
         st.markdown(f"""
         ### 📊 Resumen General
@@ -118,7 +120,15 @@ if uploaded_file:
         """)
 
         # ==========================
-        # GRÁFICOS
+        # COMPARATIVA ENTRE TÉCNICOS CLAVE
+        # ==========================
+        if tecnico_mas_solicitado != "—" and mejor_tecnico != "—":
+            comp_df = df_validos[df_validos[COL_TECNICO].isin([tecnico_mas_solicitado, mejor_tecnico])]
+            st.subheader("⚖️ Comparativa entre el técnico más solicitado y el de mejor rendimiento")
+            st.dataframe(comp_df[[COL_TECNICO, COL_ASIGNADOS, COL_RESUELTOS, "Eficiencia (%)", "Cumplimiento SLA (%)", "Eficacia Global (%)", "Rendimiento Global"]])
+
+        # ==========================
+        # GRÁFICO 1 - Casos
         # ==========================
         st.subheader("📊 Comparativo de Casos por Técnico")
         fig1 = go.Figure()
@@ -143,7 +153,9 @@ if uploaded_file:
         )
         st.plotly_chart(fig1, use_container_width=True)
 
-        # --- Rendimiento Global ---
+        # ==========================
+        # GRÁFICO 2 - Rendimiento Global
+        # ==========================
         st.subheader("🏆 Rendimiento Global por Técnico (ponderado)")
         fig2 = px.bar(
             df_validos.sort_values("Rendimiento Global", ascending=False),
@@ -154,7 +166,9 @@ if uploaded_file:
         fig2.update_layout(template="plotly_dark", bargap=0.3)
         st.plotly_chart(fig2, use_container_width=True)
 
-        # --- NUEVO: Eficacia Global ---
+        # ==========================
+        # GRÁFICO 3 - Eficacia Global (nuevo)
+        # ==========================
         st.subheader("💥 Eficacia Global por Técnico (Casos resueltos y a tiempo)")
         fig3 = px.scatter(
             df_validos,
@@ -162,12 +176,34 @@ if uploaded_file:
             y="Eficacia Global (%)",
             size=COL_RESUELTOS,
             color="Eficacia Global (%)",
+            text=COL_TECNICO,  # 🔹 muestra el nombre
             hover_name=COL_TECNICO,
             color_continuous_scale="Bluered",
             title="Eficacia del Técnico según el volumen de casos asignados",
         )
-        fig3.update_traces(marker=dict(line=dict(width=1, color="DarkSlateGrey")))
-        fig3.update_layout(template="plotly_dark")
+        fig3.update_traces(
+            textposition="top center",
+            marker=dict(line=dict(width=1, color="DarkSlateGrey"), opacity=0.8)
+        )
+
+        # Línea de promedio de eficacia
+        prom_eficacia = df_validos["Eficacia Global (%)"].mean()
+        fig3.add_hline(
+            y=prom_eficacia,
+            line_dash="dot",
+            line_color="white",
+            annotation_text=f"Promedio global: {prom_eficacia:.2f}%",
+            annotation_position="bottom right",
+            annotation_font_size=12
+        )
+
+        fig3.update_layout(
+            template="plotly_dark",
+            xaxis_title="Casos Asignados (Volumen de trabajo)",
+            yaxis_title="Eficacia Global (%)",
+            font=dict(size=12),
+            height=600
+        )
         st.plotly_chart(fig3, use_container_width=True)
 
         # ==========================
