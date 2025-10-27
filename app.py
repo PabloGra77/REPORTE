@@ -36,15 +36,16 @@ archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv
 
 if archivo:
     try:
+        # Detectar tipo de archivo y leerlo automáticamente
         if archivo.name.endswith(".csv"):
-            df = pd.read_csv(archivo, engine="python")
+            df = pd.read_csv(archivo, sep=None, engine="python")  # Detecta el separador automáticamente
         else:
             df = pd.read_excel(archivo)
 
         # Normalizar nombres de columnas
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # Detectar y renombrar campos claves
+        # Buscar y renombrar campos importantes
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -61,17 +62,19 @@ if archivo:
             if col not in df.columns:
                 df[col] = 0
 
-        # Solo mantener las columnas importantes
+        # Mantener solo las columnas importantes (nombre técnico + datos)
         df = df[[df.columns[0]] + columnas]
 
-        # Calcular métricas
+        # ==============================
+        # CÁLCULOS
+        # ==============================
         df["Eficiencia (%)"] = (df["Casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Eficacia (%)"] = ((df["Casos resueltos"] - df["Casos tardíos"]) /
                               (df["Casos asignados"] + 1e-9)) * 100
 
-        # ====================================
+        # ==============================
         # MÉTRICAS GENERALES
-        # ====================================
+        # ==============================
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         eficacia_prom = round(df["Eficacia (%)"].mean(), 2)
         asignados = int(df["Casos asignados"].sum())
@@ -85,9 +88,9 @@ if archivo:
 
         st.markdown("---")
 
-        # ====================================
+        # ==============================
         # GRÁFICOS
-        # ====================================
+        # ==============================
         st.markdown("### 📊 Casos por técnico")
         col_tecnico = df.columns[0]
         fig1 = px.bar(df, x=col_tecnico, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
@@ -99,9 +102,9 @@ if archivo:
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ====================================
-        # GENERAR PDF SIN KALEIDO
-        # ====================================
+        # ==============================
+        # GENERAR PDF (SIN KALEIDO)
+        # ==============================
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
