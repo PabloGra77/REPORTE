@@ -10,7 +10,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 
 # ===============================
-# CONFIGURACIÓN VISUAL
+# CONFIG VISUAL
 # ===============================
 st.set_page_config(page_title="Panel GIA Lite", page_icon="🤖", layout="wide")
 
@@ -30,50 +30,43 @@ body {background-color:#0E1117; color:white;}
 st.markdown("<h2 style='color:#3A86FF'>🤖 Panel GIA Lite</h2>", unsafe_allow_html=True)
 
 # ===============================
-# CARGA DE ARCHIVO
+# SUBIR ARCHIVO
 # ===============================
 archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv"])
 
 if archivo:
     try:
-        # Leer archivo con separador automático
+        # Leemos el archivo sin encabezados
         if archivo.name.endswith(".csv"):
-            df = pd.read_csv(archivo, sep=None, engine="python", on_bad_lines="skip")
+            df = pd.read_csv(archivo, header=None, sep=None, engine="python", on_bad_lines="skip")
         else:
-            df = pd.read_excel(archivo)
+            df = pd.read_excel(archivo, header=None)
 
-        # ---------------------------------------
-        # LIMPIEZA DE DUPLICADOS Y CABECERAS
-        # ---------------------------------------
+        # Tomamos la primera fila con texto válido como encabezado
+        for i in range(len(df)):
+            if df.iloc[i].notna().sum() > 1:
+                df.columns = df.iloc[i].astype(str).str.strip().fillna("")
+                df = df.drop(index=i).reset_index(drop=True)
+                break
 
-        # 1️⃣ Eliminar columnas totalmente vacías
-        df = df.dropna(axis=1, how='all')
-
-        # 2️⃣ Generar nombres únicos para columnas repetidas
+        # Eliminar duplicados y limpiar nombres
         cols = []
         seen = {}
         for c in df.columns:
-            c = str(c).strip() if c and str(c).strip() != '' else "columna_sin_nombre"
-            if c not in seen:
-                seen[c] = 0
-                cols.append(c)
-            else:
+            c = str(c).strip() if c else "columna_sin_nombre"
+            if c in seen:
                 seen[c] += 1
-                cols.append(f"{c}_{seen[c]}")
+                c = f"{c}_{seen[c]}"
+            else:
+                seen[c] = 0
+            cols.append(c)
         df.columns = cols
-
-        # 3️⃣ Eliminar columnas duplicadas (por si acaso)
         df = df.loc[:, ~df.columns.duplicated()]
-
-        # 4️⃣ Resetear índice para evitar errores de axis duplicado
-        df = df.reset_index(drop=True)
-
-        # ---------------------------------------
-        # NORMALIZACIÓN
-        # ---------------------------------------
         df.columns = [c.lower() for c in df.columns]
 
-        # Buscar columnas clave
+        # ----------------------------
+        # IDENTIFICAR COLUMNAS CLAVE
+        # ----------------------------
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -82,31 +75,26 @@ if archivo:
                 mapeo[c] = "Casos resueltos"
             elif "tard" in c:
                 mapeo[c] = "Casos tardíos"
-
         df = df.rename(columns=mapeo)
 
-        # Crear columnas faltantes si no existen
         columnas = ["Casos asignados", "Casos resueltos", "Casos tardíos"]
         for col in columnas:
             if col not in df.columns:
                 df[col] = 0
 
-        # ---------------------------------------
-        # SELECCIÓN DE COLUMNAS
-        # ---------------------------------------
         primera_columna = df.columns[0]
         df = df[[primera_columna] + columnas]
 
-        # ---------------------------------------
-        # CÁLCULOS
-        # ---------------------------------------
+        # ----------------------------
+        # CALCULOS
+        # ----------------------------
         df["Eficiencia (%)"] = (df["Casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Eficacia (%)"] = ((df["Casos resueltos"] - df["Casos tardíos"]) /
                               (df["Casos asignados"] + 1e-9)) * 100
 
-        # ---------------------------------------
+        # ----------------------------
         # MÉTRICAS
-        # ---------------------------------------
+        # ----------------------------
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         eficacia_prom = round(df["Eficacia (%)"].mean(), 2)
         asignados = int(df["Casos asignados"].sum())
@@ -120,9 +108,9 @@ if archivo:
 
         st.markdown("---")
 
-        # ---------------------------------------
-        # GRÁFICOS
-        # ---------------------------------------
+        # ----------------------------
+        # GRAFICOS
+        # ----------------------------
         st.markdown("### 📊 Casos por técnico")
         fig1 = px.bar(df, x=primera_columna, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
@@ -133,9 +121,9 @@ if archivo:
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ---------------------------------------
+        # ----------------------------
         # PDF
-        # ---------------------------------------
+        # ----------------------------
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
