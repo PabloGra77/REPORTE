@@ -1,4 +1,3 @@
-import re
 import pandas as pd
 import streamlit as st
 import plotly.express as px
@@ -13,7 +12,7 @@ from reportlab.lib.pagesizes import A4
 # ==============================
 # CONFIGURACIÓN INICIAL
 # ==============================
-st.set_page_config(page_title="GIA - Admin & Estadísticas", page_icon="🤖", layout="wide")
+st.set_page_config(page_title="GIA - Comparador de Reportes GLPI", page_icon="🤖", layout="wide")
 
 st.markdown("""
 <style>
@@ -26,43 +25,21 @@ hr {border:0; height:1px; background:#333; margin:18px 0;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Panel de Administración y Estadísticas</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Comparador de Reportes GLPI por Categoría</h2>", unsafe_allow_html=True)
 st.markdown("<div class='badge'>IPS Goleman | Inteligencia para el Soporte</div>", unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
 
-panel = st.sidebar.radio("Selecciona panel", ["🛠️ Panel de Administración", "📊 Panel de Estadísticas"])
-
 # ==============================
-# FUNCIONES AUXILIARES
+# FUNCIONES
 # ==============================
 def clean_headers_and_read(uploaded):
-    """Lee CSV/Excel, limpia encabezados y duplicados."""
+    """Lee CSV o Excel limpiando encabezados."""
     if uploaded.name.lower().endswith(".csv"):
         df = pd.read_csv(uploaded, sep=None, engine="python", on_bad_lines="skip", header=0)
     else:
         df = pd.read_excel(uploaded, header=0)
-    cols, seen = [], {}
-    for c in df.columns.astype(str):
-        c2 = (c or "").strip()
-        if c2 == "":
-            c2 = "columna_sin_nombre"
-        if c2 in seen:
-            seen[c2] += 1
-            c2 = f"{c2}_{seen[c2]}"
-        else:
-            seen[c2] = 0
-        cols.append(c2)
-    df.columns = cols
-    df = df.loc[:, ~df.columns.duplicated()].copy()
-    df.columns = [c.lower() for c in df.columns]
+    df.columns = [c.strip() for c in df.columns]
     return df
-
-def find_column(df, candidates):
-    for c in df.columns:
-        for key in candidates:
-            if key in c:
-                return c
-    return None
 
 def generar_pdf_tabla(df_resumen, kpis):
     buffer = BytesIO()
@@ -72,20 +49,17 @@ def generar_pdf_tabla(df_resumen, kpis):
     title = ParagraphStyle('title', parent=styles['Title'], alignment=TA_CENTER, textColor=colors.HexColor("#3A86FF"))
 
     story = []
-    story.append(Paragraph(f"Reporte GIA - Estadísticas por Técnico ({fecha})", title))
+    story.append(Paragraph(f"Reporte GIA - Comparación de Casos ({fecha})", title))
     story.append(Spacer(1, 10))
     story.append(Paragraph(
-        f"Casos asignados (abiertos): {kpis['asignados']} | "
-        f"Resueltos: {kpis['resueltos']} | "
-        f"Tardíos: {kpis['tardios']} | "
-        f"Eficiencia prom: {kpis['eficiencia_prom']:.2f}% | "
-        f"Eficacia prom: {kpis['eficacia_prom']:.2f}%",
+        f"Casos asignados: {kpis['asignados']} | Resueltos: {kpis['resueltos']} | Tardíos: {kpis['tardios']} | "
+        f"Eficiencia Prom: {kpis['eficiencia_prom']:.2f}% | Eficacia Prom: {kpis['eficacia_prom']:.2f}%",
         styles["Normal"]
     ))
     story.append(Spacer(1, 10))
 
     data = [df_resumen.columns.tolist()] + df_resumen.values.tolist()
-    tabla = Table(data, colWidths=[130, 90, 90, 90, 90, 90])
+    tabla = Table(data, colWidths=[120, 90, 90, 90, 90, 90])
     tabla.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3A86FF")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -99,94 +73,96 @@ def generar_pdf_tabla(df_resumen, kpis):
     return pdf
 
 # ==============================
-# PANEL ADMINISTRADOR
+# INTERFAZ
 # ==============================
-if panel == "🛠️ Panel de Administración":
-    st.subheader("🛠️ Visualizador completo del reporte GLPI")
+st.subheader("📁 Cargar archivos para comparar")
 
-    uploaded_file = st.file_uploader("📁 Cargar archivo GLPI (CSV o XLSX)", type=["csv", "xlsx"])
+col1, col2 = st.columns(2)
+archivo_detalle = col1.file_uploader("📄 Archivo Detallado (glpi_6.csv)", type=["csv", "xlsx"])
+archivo_resumen = col2.file_uploader("📄 Archivo Resumen (glpi_4.csv)", type=["csv", "xlsx"])
 
-    if uploaded_file is not None:
-        try:
-            df = clean_headers_and_read(uploaded_file)
-            st.success(f"✅ Archivo cargado correctamente con {df.shape[0]} filas y {df.shape[1]} columnas.")
+if archivo_detalle and archivo_resumen:
+    try:
+        df_detalle = clean_headers_and_read(archivo_detalle)
+        df_resumen = clean_headers_and_read(archivo_resumen)
 
-            st.markdown("### 🧾 Vista completa del archivo:")
-            st.dataframe(df, use_container_width=True)
+        # Validar columnas
+        if "Categoría" not in df_detalle.columns:
+            st.error("❌ No se encontró la columna 'Categoría' en el archivo de detalle.")
+            st.stop()
+        if "Asignado a - Técnico" not in df_detalle.columns:
+            st.error("❌ No se encontró la columna 'Asignado a - Técnico' en el archivo de detalle.")
+            st.stop()
 
-            st.markdown("### 📋 Columnas detectadas:")
-            st.write(list(df.columns))
+        # Detectar columnas de resumen
+        col_categoria = "Categoría"
+        col_abiertos = [c for c in df_resumen.columns if "abiert" in c.lower() or "asign" in c.lower()]
+        col_resueltos = [c for c in df_resumen.columns if "resuelt" in c.lower()]
+        col_tardios = [c for c in df_resumen.columns if "tard" in c.lower() or "vencid" in c.lower()]
 
-        except Exception as e:
-            st.error(f"❌ Error al procesar el archivo: {e}")
-    else:
-        st.info("Sube tu archivo GLPI (CSV o Excel) para ver todas las columnas completas.")
+        if not (col_abiertos and col_resueltos and col_tardios):
+            st.error("❌ No se detectaron las columnas de abiertos, resueltos o tardíos en el archivo resumen.")
+            st.stop()
 
-# ==============================
-# PANEL ESTADÍSTICO
-# ==============================
-if panel == "📊 Panel de Estadísticas":
-    st.subheader("📊 Generar estadísticas desde reporte GLPI")
-    up = st.file_uploader("📁 Subir reporte GLPI (CSV o XLSX)", type=["csv", "xlsx"])
+        col_abiertos, col_resueltos, col_tardios = col_abiertos[0], col_resueltos[0], col_tardios[0]
 
-    if up is None:
-        st.info("Sube un archivo para continuar.")
-    else:
-        try:
-            df = clean_headers_and_read(up)
+        # Cruce por Categoría
+        df_merged = pd.merge(df_resumen, df_detalle[["Categoría", "Asignado a - Técnico"]], on="Categoría", how="left")
 
-            col_tipo = df.columns[0]
-            col_abiertos = find_column(df, ["abiert", "asign", "abiertos", "cantidad de casos abiertos"])
-            col_resueltos = find_column(df, ["resuelt", "cerrad", "cantidad de casos resueltos"])
-            col_tardios = find_column(df, ["tard", "vencid", "overdue", "cantidad de casos tardíos"])
+        # Agrupar por técnico
+        resumen = df_merged.groupby("Asignado a - Técnico").agg({
+            col_abiertos: "sum",
+            col_resueltos: "sum",
+            col_tardios: "sum"
+        }).reset_index()
 
-            if not all([col_abiertos, col_resueltos, col_tardios]):
-                st.error("No se encontraron todas las columnas necesarias (abiertos, resueltos, tardíos). Verifica el archivo.")
-                st.stop()
+        resumen = resumen.rename(columns={
+            "Asignado a - Técnico": "Técnico",
+            col_abiertos: "Casos asignados (abiertos)",
+            col_resueltos: "Casos resueltos",
+            col_tardios: "Casos tardíos"
+        })
 
-            for c in [col_abiertos, col_resueltos, col_tardios]:
-                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
+        resumen["Eficiencia (%)"] = (resumen["Casos resueltos"] / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
+        resumen["Eficacia (%)"] = ((resumen["Casos resueltos"] - resumen["Casos tardíos"]) / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
 
-            resumen = df.groupby(col_tipo, dropna=False)[[col_abiertos, col_resueltos, col_tardios]].sum().reset_index()
-            resumen = resumen.rename(columns={
-                col_tipo: "Técnico o Categoría",
-                col_abiertos: "Casos asignados (abiertos)",
-                col_resueltos: "Casos resueltos",
-                col_tardios: "Casos tardíos"
-            })
+        # Totales y KPIs
+        asignados_tot = int(resumen["Casos asignados (abiertos)"].sum())
+        resueltos_tot = int(resumen["Casos resueltos"].sum())
+        tardios_tot = int(resumen["Casos tardíos"].sum())
+        eficiencia_prom = float(resumen["Eficiencia (%)"].mean())
+        eficacia_prom = float(resumen["Eficacia (%)"].mean())
 
-            resumen["Eficiencia (%)"] = (resumen["Casos resueltos"] / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
-            resumen["Eficacia (%)"] = ((resumen["Casos resueltos"] - resumen["Casos tardíos"]) / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
+        c1, c2, c3, c4 = st.columns(4)
+        c1.markdown(f"<div class='metric-card'><div class='metric-value'>{asignados_tot}</div><div class='metric-label'>Asignados (abiertos)</div></div>", unsafe_allow_html=True)
+        c2.markdown(f"<div class='metric-card'><div class='metric-value'>{resueltos_tot}</div><div class='metric-label'>Resueltos</div></div>", unsafe_allow_html=True)
+        c3.markdown(f"<div class='metric-card'><div class='metric-value'>{tardios_tot}</div><div class='metric-label'>Tardíos</div></div>", unsafe_allow_html=True)
+        c4.markdown(f"<div class='metric-card'><div class='metric-value'>{eficiencia_prom:.2f}%</div><div class='metric-label'>Eficiencia Prom.</div></div>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-            asignados_tot = int(resumen["Casos asignados (abiertos)"].sum())
-            resueltos_tot = int(resumen["Casos resueltos"].sum())
-            tardios_tot = int(resumen["Casos tardíos"].sum())
-            eficiencia_prom = float(resumen["Eficiencia (%)"].mean())
-            eficacia_prom = float(resumen["Eficacia (%)"].mean())
+        # Mostrar resumen
+        st.dataframe(resumen, use_container_width=True)
 
-            c1, c2, c3, c4 = st.columns(4)
-            c1.markdown(f"<div class='metric-card'><div class='metric-value'>{asignados_tot}</div><div class='metric-label'>Asignados (abiertos)</div></div>", unsafe_allow_html=True)
-            c2.markdown(f"<div class='metric-card'><div class='metric-value'>{resueltos_tot}</div><div class='metric-label'>Resueltos</div></div>", unsafe_allow_html=True)
-            c3.markdown(f"<div class='metric-card'><div class='metric-value'>{tardios_tot}</div><div class='metric-label'>Tardíos</div></div>", unsafe_allow_html=True)
-            c4.markdown(f"<div class='metric-card'><div class='metric-value'>{eficiencia_prom:.2f}%</div><div class='metric-label'>Eficiencia Prom.</div></div>", unsafe_allow_html=True)
-            st.markdown("<hr>", unsafe_allow_html=True)
+        # Gráficos
+        fig1 = px.bar(resumen, x="Técnico", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
+                      barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"],
+                      title="Casos por Técnico")
+        st.plotly_chart(fig1, use_container_width=True)
 
-            st.dataframe(resumen, use_container_width=True)
+        fig2 = px.bar(resumen, x="Técnico", y=["Eficiencia (%)", "Eficacia (%)"],
+                      barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"],
+                      title="Eficiencia y Eficacia por Técnico")
+        st.plotly_chart(fig2, use_container_width=True)
 
-            fig1 = px.bar(resumen, x="Técnico o Categoría", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
-                          barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
-            st.plotly_chart(fig1, use_container_width=True)
+        # Generar PDF
+        pdf = generar_pdf_tabla(
+            resumen[["Técnico", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
+            {"asignados": asignados_tot, "resueltos": resueltos_tot, "tardios": tardios_tot,
+             "eficiencia_prom": eficiencia_prom, "eficacia_prom": eficacia_prom}
+        )
+        st.download_button("📄 Descargar Reporte PDF", pdf, file_name="reporte_gia_comparativo.pdf")
 
-            fig2 = px.bar(resumen, x="Técnico o Categoría", y=["Eficiencia (%)", "Eficacia (%)"],
-                          barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
-            st.plotly_chart(fig2, use_container_width=True)
-
-            pdf = generar_pdf_tabla(
-                resumen[["Técnico o Categoría", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
-                {"asignados": asignados_tot, "resueltos": resueltos_tot, "tardios": tardios_tot,
-                 "eficiencia_prom": eficiencia_prom, "eficacia_prom": eficacia_prom}
-            )
-            st.download_button("📄 Descargar Reporte PDF", pdf, file_name="reporte_gia_por_tecnico.pdf")
-
-        except Exception as e:
-            st.error(f"❌ Error al procesar: {e}")
+    except Exception as e:
+        st.error(f"❌ Error al procesar los archivos: {e}")
+else:
+    st.info("Sube los dos archivos (detalle y resumen) para generar la comparación.")
