@@ -156,7 +156,7 @@ if uploaded_file:
         # --------------------------
         # GRÁFICOS
         # --------------------------
-        # 1) Casos por técnico
+        # 1️⃣ Casos por técnico
         fig1 = go.Figure()
         fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Casos asignados"], name="Asignados"))
         fig1.add_trace(go.Bar(x=df_validos[COL_TECNICO], y=df_validos["Cantidad de casos resueltos"], name="Resueltos"))
@@ -164,7 +164,7 @@ if uploaded_file:
         fig1.update_layout(template="plotly_dark", title="📦 Casos por Técnico", barmode="group")
         st.plotly_chart(fig1, use_container_width=True)
 
-        # 2) Rendimiento Global
+        # 2️⃣ Rendimiento Global
         fig2 = px.bar(
             df_validos, x=COL_TECNICO, y="Rendimiento Global",
             color="Rendimiento Global", text_auto=".2f",
@@ -173,7 +173,7 @@ if uploaded_file:
         fig2.update_layout(template="plotly_dark")
         st.plotly_chart(fig2, use_container_width=True)
 
-        # 3) Eficacia Global (dispersión)
+        # 3️⃣ Eficacia Global
         fig3 = px.scatter(
             df_validos, x="Casos asignados", y="Eficacia Global (%)",
             size="Cantidad de casos resueltos", color="Eficacia Global (%)",
@@ -183,7 +183,7 @@ if uploaded_file:
         fig3.update_traces(textposition="top center")
         st.plotly_chart(fig3, use_container_width=True)
 
-        # 4) Salud del Grupo (gauge)
+        # 4️⃣ Salud del Grupo
         st.markdown("## 👥 Salud del Grupo")
         fig4 = go.Figure(go.Indicator(
             mode="gauge+number",
@@ -204,14 +204,13 @@ if uploaded_file:
         st.plotly_chart(fig4, use_container_width=True)
 
         # --------------------------
-        # PDF CON PROTECCIÓN KALEIDO
+        # GENERAR PDF
         # --------------------------
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
             nombre_pdf = f"reporte_GIA_{fecha}.pdf"
 
-            # Exportar figuras a imágenes PNG (si es posible)
             temp_imgs = []
             try:
                 for fig in [fig1, fig2, fig3, fig4]:
@@ -219,82 +218,34 @@ if uploaded_file:
                     fig.write_image(tmp.name, format="png", width=850, height=480, scale=2)
                     temp_imgs.append(tmp.name)
             except Exception:
-                st.warning("⚠️ No se pudo exportar los gráficos al PDF (el servidor no tiene Google Chrome o Kaleido). "
-                           "El archivo se generará sin gráficos.")
+                st.warning("⚠️ No se pudo exportar los gráficos al PDF (el servidor no tiene Kaleido). El archivo se generará sin gráficos.")
                 temp_imgs = []
 
-            # Estilos PDF
             styles = getSampleStyleSheet()
             style_title = ParagraphStyle('TitleCenter', parent=styles['Title'], alignment=TA_CENTER,
                                          textColor=colors.HexColor("#3A86FF"), fontSize=20)
-            style_subtitle = ParagraphStyle('Subtitle', parent=styles['Normal'], alignment=TA_CENTER,
-                                            textColor=colors.HexColor("#FF9F1C"), fontSize=12)
-            style_section = ParagraphStyle('Section', parent=styles['Heading2'], textColor=colors.HexColor("#3A86FF"))
             style_text = ParagraphStyle('BodyText', parent=styles['Normal'], alignment=TA_LEFT, fontSize=11, leading=15)
 
             doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=40, bottomMargin=30)
             story = []
 
-            # Encabezado
             story.append(Paragraph("📘 Reporte GIA", style_title))
-            story.append(Paragraph(f"Fecha del informe: {fecha}", style_subtitle))
-            story.append(Spacer(1, 12))
-
-            # Métricas principales
-            data_metrics = [
-                ["Eficiencia Promedio", f"{eficiencia_prom:.2f} %"],
-                ["Cumplimiento SLA Promedio", f"{sla_prom:.2f} %"],
-                ["Eficacia Promedio", f"{eficacia_prom:.2f} %"],
-                ["Salud del Grupo", f"{indice_salud:.2f} %"],
-            ]
-            t = Table(data_metrics, colWidths=[3.2*inch, 1.3*inch])
-            t.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3A86FF")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-                ('GRID', (0, 0), (-1, -1), 0.3, colors.HexColor("#AAAAAA")),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.whitesmoke, colors.lightgrey])
-            ]))
-            story.append(t)
-            story.append(Spacer(1, 14))
-
-            # Destacados
-            story.append(Paragraph("👷 Técnicos Destacados", style_section))
-            story.append(Spacer(1, 6))
-            story.append(Paragraph(f"• Técnico más solicitado: {mas_solicitado}", style_text))
-            story.append(Paragraph(f"• Mejor técnico (Rendimiento Global): {mejor}", style_text))
-            story.append(Paragraph(f"• Técnico más eficaz: {mas_eficaz} ({mas_eficaz_val:.2f} %)", style_text))
-            story.append(Paragraph(f"• Menor rendimiento: {peor}", style_text))
+            story.append(Paragraph(f"Fecha del informe: {fecha}", style_text))
             story.append(Spacer(1, 10))
 
-            # Totales
-            story.append(Paragraph("📦 Totales del periodo", style_section))
-            story.append(Spacer(1, 4))
-            story.append(Paragraph(
-                f"Asignados: {int(tot_asignados)} · Resueltos: {int(tot_resueltos)} · "
-                f"Tardíos: {int(tot_tardios)} · Pendientes: {int(pendientes)} · "
-                f"Técnicos: {n_tecnicos}", style_text
-            ))
-            story.append(Spacer(1, 14))
+            story.append(Paragraph(f"Eficiencia Prom: {eficiencia_prom} % | SLA Prom: {sla_prom} % | Eficacia Prom: {eficacia_prom} % | Salud: {indice_salud} %", style_text))
+            story.append(Paragraph(f"Más solicitado: {mas_solicitado} | Mejor técnico: {mejor} | Más eficaz: {mas_eficaz} | Peor: {peor}", style_text))
+            story.append(Spacer(1, 12))
 
-            # Insertar gráficos si existen
-            if temp_imgs:
-                titulos = ["📊 Casos por Técnico", "⚙️ Rendimiento Global", "🎯 Eficacia Global", "👥 Salud del Grupo"]
-                for i, path in enumerate(temp_imgs):
-                    story.append(Paragraph(titulos[i], style_section))
-                    story.append(Spacer(1, 6))
-                    story.append(Image(path, width=6.3*inch, height=3.5*inch))
-                    story.append(Spacer(1, 10))
-            else:
-                story.append(Paragraph("⚠️ Los gráficos no se pudieron exportar en este entorno.", style_text))
+            for path in temp_imgs:
+                story.append(Image(path, width=6.3*inch, height=3.5*inch))
+                story.append(Spacer(1, 10))
 
             doc.build(story)
             pdf = buffer.getvalue()
             buffer.close()
             return nombre_pdf, pdf
 
-        # Botón de descarga
         nombre_pdf, pdf = generar_pdf()
         st.download_button("📄 Descargar Reporte GIA (PDF)", pdf, nombre_pdf, "application/pdf")
 
@@ -303,4 +254,3 @@ if uploaded_file:
 
 else:
     st.info("📄 Sube tu archivo Excel o CSV del sistema GIA para comenzar.")
- st.info("📄 Sube tu archivo Excel o CSV del sistema GIA para comenzar.")
