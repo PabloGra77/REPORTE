@@ -36,11 +36,15 @@ archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv
 
 if archivo:
     try:
-        # Detectar tipo de archivo y leerlo automáticamente
+        # Leer archivo con manejo de errores por duplicados
         if archivo.name.endswith(".csv"):
-            df = pd.read_csv(archivo, sep=None, engine="python")
+            # Lee las columnas sin encabezado y luego asigna nombres únicos
+            df = pd.read_csv(archivo, sep=None, engine="python", header=0)
+            # Forzar nombres únicos si hay repetidos
+            df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
         else:
             df = pd.read_excel(archivo)
+            df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
 
         # 🔧 Eliminar columnas duplicadas
         df = df.loc[:, ~df.columns.duplicated()]
