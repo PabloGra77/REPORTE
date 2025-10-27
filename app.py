@@ -38,9 +38,12 @@ if archivo:
     try:
         # Detectar tipo de archivo y leerlo automáticamente
         if archivo.name.endswith(".csv"):
-            df = pd.read_csv(archivo, sep=None, engine="python")  # Detecta el separador automáticamente
+            df = pd.read_csv(archivo, sep=None, engine="python")
         else:
             df = pd.read_excel(archivo)
+
+        # 🔧 Eliminar columnas duplicadas
+        df = df.loc[:, ~df.columns.duplicated()]
 
         # Normalizar nombres de columnas
         df.columns = [c.strip().lower() for c in df.columns]
