@@ -32,13 +32,15 @@ st.markdown("<hr>", unsafe_allow_html=True)
 # ==============================
 # FUNCIONES
 # ==============================
-def clean_headers_and_read(uploaded):
-    """Lee CSV o Excel limpiando encabezados."""
-    if uploaded.name.lower().endswith(".csv"):
-        df = pd.read_csv(uploaded, sep=None, engine="python", on_bad_lines="skip", header=0)
-    else:
-        df = pd.read_excel(uploaded, header=0)
-    df.columns = [c.strip() for c in df.columns]
+def leer_csv_flexible(archivo):
+    """Lee CSV con o sin encabezado, detectando separadores automáticamente."""
+    try:
+        df = pd.read_csv(archivo, sep=None, engine="python", on_bad_lines="skip")
+        if df.columns[0].startswith("Unnamed") or "columna" in df.columns[0].lower():
+            df.columns = [f"Columna_{i+1}" for i in range(df.shape[1])]
+    except Exception:
+        df = pd.read_csv(archivo, header=None, sep=None, engine="python", on_bad_lines="skip")
+        df.columns = [f"Columna_{i+1}" for i in range(df.shape[1])]
     return df
 
 def generar_pdf_tabla(df_resumen, kpis):
@@ -79,45 +81,63 @@ st.subheader("📁 Cargar archivos para comparar")
 
 col1, col2 = st.columns(2)
 archivo_detalle = col1.file_uploader("📄 Archivo Detallado (glpi_6.csv)", type=["csv", "xlsx"])
-archivo_resumen = col2.file_uploader("📄 Archivo Resumen (glpi_4.csv)", type=["csv", "xlsx"])
+archivo_resumen = col2.file_uploader("📄 Archivo Resumen (glpi_7.csv)", type=["csv", "xlsx"])
 
 if archivo_detalle and archivo_resumen:
     try:
-        df_detalle = clean_headers_and_read(archivo_detalle)
-        df_resumen = clean_headers_and_read(archivo_resumen)
+        # Leer archivos
+        df_detalle = leer_csv_flexible(archivo_detalle)
+        df_resumen = leer_csv_flexible(archivo_resumen)
 
-        # Validar columnas
+        # Validar columnas necesarias
         if "Categoría" not in df_detalle.columns:
             st.error("❌ No se encontró la columna 'Categoría' en el archivo de detalle.")
             st.stop()
-        if "Asignado a - Técnico" not in df_detalle.columns:
-            st.error("❌ No se encontró la columna 'Asignado a - Técnico' en el archivo de detalle.")
-            st.stop()
 
-        # Detectar columnas de resumen
-        col_categoria = "Categoría"
+        if "Asignado a - Técnico" not in df_detalle.columns:
+            posibles = [c for c in df_detalle.columns if "técnico" in c.lower() or "asignado" in c.lower()]
+            if posibles:
+                tecnico_col = posibles[0]
+                st.info(f"✅ Se detectó la columna del técnico: **{tecnico_col}**")
+            else:
+                st.error("❌ No se encontró la columna del técnico ('Asignado a - Técnico').")
+                st.stop()
+        else:
+            tecnico_col = "Asignado a - Técnico"
+
+        # Para el archivo resumen, usar la primera columna como Categoría
+        col_categoria_resumen = df_resumen.columns[0]
+        st.info(f"✅ Se usará la columna '{col_categoria_resumen}' como categoría en el archivo resumen.")
+
+        # Detectar columnas de abiertos, resueltos y tardíos
         col_abiertos = [c for c in df_resumen.columns if "abiert" in c.lower() or "asign" in c.lower()]
         col_resueltos = [c for c in df_resumen.columns if "resuelt" in c.lower()]
         col_tardios = [c for c in df_resumen.columns if "tard" in c.lower() or "vencid" in c.lower()]
 
         if not (col_abiertos and col_resueltos and col_tardios):
-            st.error("❌ No se detectaron las columnas de abiertos, resueltos o tardíos en el archivo resumen.")
+            st.error("❌ No se detectaron columnas de abiertos, resueltos o tardíos en el archivo resumen.")
             st.stop()
 
         col_abiertos, col_resueltos, col_tardios = col_abiertos[0], col_resueltos[0], col_tardios[0]
 
         # Cruce por Categoría
-        df_merged = pd.merge(df_resumen, df_detalle[["Categoría", "Asignado a - Técnico"]], on="Categoría", how="left")
+        df_merged = pd.merge(
+            df_resumen,
+            df_detalle[["Categoría", tecnico_col]],
+            left_on=col_categoria_resumen,
+            right_on="Categoría",
+            how="left"
+        )
 
         # Agrupar por técnico
-        resumen = df_merged.groupby("Asignado a - Técnico").agg({
+        resumen = df_merged.groupby(tecnico_col).agg({
             col_abiertos: "sum",
             col_resueltos: "sum",
             col_tardios: "sum"
         }).reset_index()
 
         resumen = resumen.rename(columns={
-            "Asignado a - Técnico": "Técnico",
+            tecnico_col: "Técnico",
             col_abiertos: "Casos asignados (abiertos)",
             col_resueltos: "Casos resueltos",
             col_tardios: "Casos tardíos"
@@ -126,7 +146,9 @@ if archivo_detalle and archivo_resumen:
         resumen["Eficiencia (%)"] = (resumen["Casos resueltos"] / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
         resumen["Eficacia (%)"] = ((resumen["Casos resueltos"] - resumen["Casos tardíos"]) / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
 
-        # Totales y KPIs
+        # ==============================
+        # VISUALIZACIÓN Y KPIs
+        # ==============================
         asignados_tot = int(resumen["Casos asignados (abiertos)"].sum())
         resueltos_tot = int(resumen["Casos resueltos"].sum())
         tardios_tot = int(resumen["Casos tardíos"].sum())
@@ -134,16 +156,14 @@ if archivo_detalle and archivo_resumen:
         eficacia_prom = float(resumen["Eficacia (%)"].mean())
 
         c1, c2, c3, c4 = st.columns(4)
-        c1.markdown(f"<div class='metric-card'><div class='metric-value'>{asignados_tot}</div><div class='metric-label'>Asignados (abiertos)</div></div>", unsafe_allow_html=True)
+        c1.markdown(f"<div class='metric-card'><div class='metric-value'>{asignados_tot}</div><div class='metric-label'>Asignados</div></div>", unsafe_allow_html=True)
         c2.markdown(f"<div class='metric-card'><div class='metric-value'>{resueltos_tot}</div><div class='metric-label'>Resueltos</div></div>", unsafe_allow_html=True)
         c3.markdown(f"<div class='metric-card'><div class='metric-value'>{tardios_tot}</div><div class='metric-label'>Tardíos</div></div>", unsafe_allow_html=True)
         c4.markdown(f"<div class='metric-card'><div class='metric-value'>{eficiencia_prom:.2f}%</div><div class='metric-label'>Eficiencia Prom.</div></div>", unsafe_allow_html=True)
-        st.markdown("<hr>", unsafe_allow_html=True)
 
-        # Mostrar resumen
+        st.markdown("<hr>", unsafe_allow_html=True)
         st.dataframe(resumen, use_container_width=True)
 
-        # Gráficos
         fig1 = px.bar(resumen, x="Técnico", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"],
                       title="Casos por Técnico")
@@ -154,7 +174,6 @@ if archivo_detalle and archivo_resumen:
                       title="Eficiencia y Eficacia por Técnico")
         st.plotly_chart(fig2, use_container_width=True)
 
-        # Generar PDF
         pdf = generar_pdf_tabla(
             resumen[["Técnico", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
             {"asignados": asignados_tot, "resueltos": resueltos_tot, "tardios": tardios_tot,
