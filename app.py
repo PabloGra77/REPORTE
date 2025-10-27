@@ -14,23 +14,27 @@ from reportlab.lib.pagesizes import A4
 # CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(page_title="GIA - Admin & Estadísticas", page_icon="🤖", layout="wide")
-MAP_FILE = "asignaciones.csv"  # Reglas Tipo → Técnico
+
+st.markdown("""
+<style>
+body {background-color:#0E1117; color:white;}
+.badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#23262F; border:1px solid #3A86FF55; font-size:12px; }
+.metric-card { background:#1E1E1E; border:1px solid #3A86FF33; border-radius:12px; padding:14px; text-align:center; box-shadow:0 0 6px rgba(58,134,255,0.25); }
+.metric-value { font-size:22px; font-weight:800; }
+.metric-label { color:#FF9F1C; font-size:12px; }
+hr {border:0; height:1px; background:#333; margin:18px 0;}
+</style>
+""", unsafe_allow_html=True)
+
+st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Panel de Administración y Estadísticas</h2>", unsafe_allow_html=True)
+st.markdown("<div class='badge'>IPS Goleman | Inteligencia para el Soporte</div>", unsafe_allow_html=True)
+st.markdown("<hr>", unsafe_allow_html=True)
+
+panel = st.sidebar.radio("Selecciona panel", ["🛠️ Panel de Administración", "📊 Panel de Estadísticas"])
 
 # ==============================
 # FUNCIONES AUXILIARES
 # ==============================
-def load_mappings():
-    try:
-        df = pd.read_csv(MAP_FILE)
-        if set(df.columns) != {"tipo_patron", "tecnico"}:
-            raise ValueError
-        return df
-    except Exception:
-        return pd.DataFrame(columns=["tipo_patron", "tecnico"])
-
-def save_mappings(df):
-    df.to_csv(MAP_FILE, index=False)
-
 def clean_headers_and_read(uploaded):
     """Lee CSV/Excel, limpia encabezados y duplicados."""
     if uploaded.name.lower().endswith(".csv"):
@@ -59,24 +63,6 @@ def find_column(df, candidates):
             if key in c:
                 return c
     return None
-
-def assign_tecnico_from_tipo(tipo_val, mappings_df):
-    """Asigna técnico según patrón configurado."""
-    txt = str(tipo_val or "").strip().lower()
-    if mappings_df.empty or txt == "":
-        return "— sin asignación —"
-    for _, row in mappings_df.iterrows():
-        patron = str(row["tipo_patron"] or "").strip()
-        tecnico = str(row["tecnico"] or "").strip()
-        if patron == "" or tecnico == "":
-            continue
-        try:
-            if re.search(patron, txt, flags=re.IGNORECASE):
-                return tecnico
-        except re.error:
-            if patron.lower() in txt:
-                return tecnico
-    return "— sin asignación —"
 
 def generar_pdf_tabla(df_resumen, kpis):
     buffer = BytesIO()
@@ -113,80 +99,28 @@ def generar_pdf_tabla(df_resumen, kpis):
     return pdf
 
 # ==============================
-# INTERFAZ VISUAL
-# ==============================
-st.markdown("""
-<style>
-body {background-color:#0E1117; color:white;}
-.badge { display:inline-block; padding:4px 10px; border-radius:999px; background:#23262F; border:1px solid #3A86FF55; font-size:12px; }
-.metric-card { background:#1E1E1E; border:1px solid #3A86FF33; border-radius:12px; padding:14px; text-align:center; box-shadow:0 0 6px rgba(58,134,255,0.25); }
-.metric-value { font-size:22px; font-weight:800; }
-.metric-label { color:#FF9F1C; font-size:12px; }
-hr {border:0; height:1px; background:#333; margin:18px 0;}
-</style>
-""", unsafe_allow_html=True)
-
-st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Panel de Administración y Estadísticas</h2>", unsafe_allow_html=True)
-st.markdown("<div class='badge'>IPS Goleman | Inteligencia para el Soporte</div>", unsafe_allow_html=True)
-st.markdown("<hr>", unsafe_allow_html=True)
-
-panel = st.sidebar.radio("Selecciona panel", ["🛠️ Panel de Administración", "📊 Panel de Estadísticas"])
-
-# ==============================
 # PANEL ADMINISTRADOR
 # ==============================
 if panel == "🛠️ Panel de Administración":
-    st.subheader("🛠️ Reglas de asignación: Tipo de caso → Técnico")
+    st.subheader("🛠️ Visualizador completo del reporte GLPI")
 
-    maps_df = load_mappings()
-    if not maps_df.empty:
-        st.dataframe(maps_df, use_container_width=True)
-    else:
-        st.info("Aún no hay reglas configuradas.")
+    uploaded_file = st.file_uploader("📁 Cargar archivo GLPI (CSV o XLSX)", type=["csv", "xlsx"])
 
-    st.markdown("### ➕ Agregar manualmente")
-    with st.form("frm_mappings"):
-        col1, col2 = st.columns(2)
-        tipo_patron = col1.text_input("Tipo o palabra clave del caso", placeholder="soporte | hardware | red")
-        tecnico = col2.text_input("Técnico asignado", placeholder="Pablo Granados")
-        submitted = st.form_submit_button("Agregar regla")
-
-    if submitted:
-        if tipo_patron.strip() and tecnico.strip():
-            maps_df = pd.concat([maps_df, pd.DataFrame([{"tipo_patron": tipo_patron.strip(), "tecnico": tecnico.strip()}])], ignore_index=True)
-            save_mappings(maps_df)
-            st.success("✅ Regla agregada correctamente.")
-        else:
-            st.warning("Por favor completa ambos campos.")
-
-    st.markdown("---")
-    st.markdown("### 📥 Cargar masivamente desde archivo Excel o CSV")
-    uploaded = st.file_uploader("Cargar archivo masivo (Columna A: Tipo de caso | Columna B: Técnico)", type=["csv", "xlsx"])
-
-    if uploaded:
+    if uploaded_file is not None:
         try:
-            if uploaded.name.lower().endswith(".csv"):
-                df_new = pd.read_csv(uploaded, header=None)
-            else:
-                df_new = pd.read_excel(uploaded, header=None)
+            df = clean_headers_and_read(uploaded_file)
+            st.success(f"✅ Archivo cargado correctamente con {df.shape[0]} filas y {df.shape[1]} columnas.")
 
-            if df_new.shape[1] < 2:
-                st.error("❌ El archivo debe tener al menos dos columnas: A (tipo) y B (técnico).")
-            else:
-                df_new.columns = ["tipo_patron", "tecnico"]
-                st.dataframe(df_new.head(), use_container_width=True)
-                if st.button("✅ Guardar carga masiva"):
-                    maps_df = pd.concat([maps_df, df_new], ignore_index=True)
-                    save_mappings(maps_df)
-                    st.success(f"Se guardaron {len(df_new)} asignaciones correctamente.")
+            st.markdown("### 🧾 Vista completa del archivo:")
+            st.dataframe(df, use_container_width=True)
+
+            st.markdown("### 📋 Columnas detectadas:")
+            st.write(list(df.columns))
+
         except Exception as e:
-            st.error(f"Error al procesar el archivo: {e}")
-
-    st.markdown("---")
-    if not maps_df.empty:
-        if st.button("🗑️ Borrar todas las reglas"):
-            save_mappings(pd.DataFrame(columns=["tipo_patron", "tecnico"]))
-            st.warning("Se eliminaron todas las reglas.")
+            st.error(f"❌ Error al procesar el archivo: {e}")
+    else:
+        st.info("Sube tu archivo GLPI (CSV o Excel) para ver todas las columnas completas.")
 
 # ==============================
 # PANEL ESTADÍSTICO
@@ -210,19 +144,12 @@ if panel == "📊 Panel de Estadísticas":
                 st.error("No se encontraron todas las columnas necesarias (abiertos, resueltos, tardíos). Verifica el archivo.")
                 st.stop()
 
-            maps_df = load_mappings()
-            if maps_df.empty:
-                st.warning("No hay reglas de asignación. Configura alguna en el Panel de Administración.")
-                st.stop()
-
-            df["__Tecnico__"] = df[col_tipo].apply(lambda v: assign_tecnico_from_tipo(v, maps_df))
-
             for c in [col_abiertos, col_resueltos, col_tardios]:
                 df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-            resumen = df.groupby("__Tecnico__", dropna=False)[[col_abiertos, col_resueltos, col_tardios]].sum().reset_index()
+            resumen = df.groupby(col_tipo, dropna=False)[[col_abiertos, col_resueltos, col_tardios]].sum().reset_index()
             resumen = resumen.rename(columns={
-                "__Tecnico__": "Técnico",
+                col_tipo: "Técnico o Categoría",
                 col_abiertos: "Casos asignados (abiertos)",
                 col_resueltos: "Casos resueltos",
                 col_tardios: "Casos tardíos"
@@ -246,16 +173,16 @@ if panel == "📊 Panel de Estadísticas":
 
             st.dataframe(resumen, use_container_width=True)
 
-            fig1 = px.bar(resumen, x="Técnico", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
+            fig1 = px.bar(resumen, x="Técnico o Categoría", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
                           barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
             st.plotly_chart(fig1, use_container_width=True)
 
-            fig2 = px.bar(resumen, x="Técnico", y=["Eficiencia (%)", "Eficacia (%)"],
+            fig2 = px.bar(resumen, x="Técnico o Categoría", y=["Eficiencia (%)", "Eficacia (%)"],
                           barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
             st.plotly_chart(fig2, use_container_width=True)
 
             pdf = generar_pdf_tabla(
-                resumen[["Técnico", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
+                resumen[["Técnico o Categoría", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
                 {"asignados": asignados_tot, "resueltos": resueltos_tot, "tardios": tardios_tot,
                  "eficiencia_prom": eficiencia_prom, "eficacia_prom": eficacia_prom}
             )
