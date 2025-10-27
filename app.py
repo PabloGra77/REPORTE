@@ -11,13 +11,13 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import A4
 
 # ==============================
-# CONFIG
+# CONFIGURACIÓN INICIAL
 # ==============================
 st.set_page_config(page_title="GIA - Admin & Estadísticas", page_icon="🤖", layout="wide")
 MAP_FILE = "asignaciones.csv"  # reglas Tipo → Técnico
 
 # ==============================
-# HELPERS
+# FUNCIONES AUXILIARES
 # ==============================
 def load_mappings():
     try:
@@ -32,15 +32,13 @@ def save_mappings(df):
     df.to_csv(MAP_FILE, index=False)
 
 def clean_headers_and_read(uploaded):
-    """Lee CSV/Excel robustamente, limpia encabezados, dupes y separador."""
+    """Lee CSV/Excel, limpia encabezados y duplicados."""
     if uploaded.name.lower().endswith(".csv"):
         df = pd.read_csv(uploaded, sep=None, engine="python", on_bad_lines="skip", header=0)
     else:
         df = pd.read_excel(uploaded, header=0)
-
-    # Forzar texto y unicidad de columnas
-    cols = []
-    seen = {}
+    # limpiar encabezados duplicados o vacíos
+    cols, seen = [], {}
     for c in df.columns.astype(str):
         c2 = (c or "").strip()
         if c2 == "":
@@ -57,7 +55,6 @@ def clean_headers_and_read(uploaded):
     return df
 
 def find_column(df, candidates):
-    """Encuentra la primera columna cuyo nombre contenga cualquiera de los candidatos."""
     for c in df.columns:
         for key in candidates:
             if key in c:
@@ -65,23 +62,21 @@ def find_column(df, candidates):
     return None
 
 def estado_buckets(estado_val):
-    """Clasifica estado → abierto/resuelto/tardío (booleanos)."""
+    """Clasifica estado → abierto/resuelto/tardío."""
     if not isinstance(estado_val, str):
         estado_val = str(estado_val or "")
     s = estado_val.strip().lower()
-
-    abiertos = {"abierto", "abiertos", "nuevo", "nueva", "en curso", "asignado", "pendiente", "en espera", "procesando", "planificado"}
+    abiertos = {"abierto", "abiertos", "nuevo", "en curso", "asignado", "pendiente", "en espera", "procesando"}
     resueltos = {"resuelto", "cerrado", "solucionado", "finalizado", "completado"}
     tardios_keys = {"tard", "vencid", "late", "overdue", "fuera de plazo"}
 
     is_abierto = any(k in s for k in abiertos) and not any(k in s for k in resueltos)
     is_resuelto = any(k in s for k in resueltos)
-    # tardío lo determinaremos con columna específica si existe; aquí solo heurística por estado:
     is_tardio = any(k in s for k in tardios_keys)
     return is_abierto, is_resuelto, is_tardio
 
 def assign_tecnico_from_tipo(tipo_val, mappings_df):
-    """Asigna técnico por patrones (regex/substring) definidos en admin."""
+    """Asigna técnico según patrón configurado."""
     txt = str(tipo_val or "").strip().lower()
     if mappings_df.empty or txt == "":
         return "— sin asignación —"
@@ -90,7 +85,6 @@ def assign_tecnico_from_tipo(tipo_val, mappings_df):
         tecnico = str(row["tecnico"] or "").strip()
         if patron == "" or tecnico == "":
             continue
-        # Coincidencia flexible: regex o substring (case-insensitive)
         try:
             if re.search(patron, txt, flags=re.IGNORECASE):
                 return tecnico
@@ -134,7 +128,7 @@ def generar_pdf_tabla(df_resumen, kpis):
     return pdf
 
 # ==============================
-# ESTILO
+# INTERFAZ VISUAL
 # ==============================
 st.markdown("""
 <style>
@@ -147,41 +141,40 @@ hr {border:0; height:1px; background:#333; margin:18px 0;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Admin & Estadísticas por Técnico</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Panel de Administración y Estadísticas</h2>", unsafe_allow_html=True)
 st.markdown("<div class='badge'>IPS Goleman | Inteligencia para el Soporte</div>", unsafe_allow_html=True)
 st.markdown("<hr>", unsafe_allow_html=True)
 
 panel = st.sidebar.radio("Selecciona panel", ["🛠️ Panel de Administración", "📊 Panel de Estadísticas"])
 
 # ==============================
-# PANEL ADMIN
+# PANEL ADMINISTRADOR
 # ==============================
 if panel == "🛠️ Panel de Administración":
     st.subheader("🛠️ Reglas de asignación: Tipo de caso → Técnico")
-    st.caption("Agrega patrones (palabras clave o expresiones regulares) que identifiquen el **tipo de caso** y el **técnico** al que debe asignarse.")
 
     maps_df = load_mappings()
     if not maps_df.empty:
         st.dataframe(maps_df, use_container_width=True)
     else:
-        st.info("Aún no hay reglas. Crea la primera abajo.")
+        st.info("Aún no hay reglas configuradas.")
 
     with st.form("frm_mappings"):
         col1, col2 = st.columns(2)
-        tipo_patron = col1.text_input("Patrón de tipo de caso (palabra o regex)", placeholder="p.ej. soporte|hardware|software|red|correo")
-        tecnico = col2.text_input("Técnico asignado", placeholder="p.ej. Pablo Granados")
+        tipo_patron = col1.text_input("Patrón de tipo de caso (palabra o regex)", placeholder="soporte|hardware|correo")
+        tecnico = col2.text_input("Técnico asignado", placeholder="Pablo Granados")
         submitted = st.form_submit_button("➕ Agregar regla")
+
     if submitted:
         if tipo_patron.strip() and tecnico.strip():
             maps_df = pd.concat([maps_df, pd.DataFrame([{"tipo_patron": tipo_patron.strip(), "tecnico": tecnico.strip()}])], ignore_index=True)
             save_mappings(maps_df)
-            st.success("✅ Regla agregada.")
+            st.success("✅ Regla agregada correctamente.")
         else:
-            st.warning("Completa ambos campos.")
+            st.warning("Por favor, completa ambos campos.")
 
     if not maps_df.empty:
         st.markdown("---")
-        st.subheader("🧹 Limpiar / Editar")
         if st.button("🗑️ Borrar todas las reglas"):
             save_mappings(pd.DataFrame(columns=["tipo_patron", "tecnico"]))
             st.warning("Se eliminaron todas las reglas.")
@@ -190,44 +183,40 @@ if panel == "🛠️ Panel de Administración":
 # PANEL ESTADÍSTICO
 # ==============================
 if panel == "📊 Panel de Estadísticas":
-    st.subheader("📊 Generar estadísticas desde reporte GLPI (detalle de casos)")
-    st.caption("Sube el archivo exportado de GLPI (CSV o XLSX). La app asignará cada caso al técnico según tus reglas del Panel de Administración.")
+    st.subheader("📊 Generar estadísticas desde reporte GLPI")
+    up = st.file_uploader("📁 Subir reporte GLPI (CSV o XLSX)", type=["csv", "xlsx"])
 
-    up = st.file_uploader("📁 Subir reporte GLPI (detalle de tickets)", type=["csv", "xlsx"])
     if up is None:
         st.info("Sube un archivo para continuar.")
     else:
         try:
             df = clean_headers_and_read(up)
 
-            # Detectar columnas clave del reporte GLPI
+            # detectar columnas
             col_tipo   = find_column(df, ["tipo", "categor", "category"])
             col_estado = find_column(df, ["estado", "status"])
             col_tardio = find_column(df, ["tard", "vencid", "overdue", "sla"])
 
+            # ✅ si no hay "tipo", usamos la primera columna
             if col_tipo is None:
-                st.error("No encontré una columna de **Tipo** en el reporte (busqué: tipo, categoría, category). Exporta el reporte detallado con esa columna.")
-                st.stop()
+                col_tipo = df.columns[0]
+                st.warning(f"No se encontró columna 'Tipo', se usará la primera: **{col_tipo}**")
+
             if col_estado is None:
-                st.error("No encontré una columna de **Estado** (busqué: estado, status). Exporta el reporte detallado con estados.")
+                st.error("No encontré columna de estado (estado/status).")
                 st.stop()
 
-            # Cargar reglas admin
+            # cargar reglas admin
             maps_df = load_mappings()
             if maps_df.empty:
-                st.warning("No hay reglas de asignación aún. Ve al Panel de Administración y agrega al menos una (Tipo → Técnico).")
+                st.warning("No hay reglas de asignación. Configura alguna en el Panel de Administración.")
                 st.stop()
 
-            # Asignar técnico por tipo
             df["__Tecnico__"] = df[col_tipo].apply(lambda v: assign_tecnico_from_tipo(v, maps_df))
 
-            # Construir flags
-            abiertos = []
-            resueltos = []
-            tardios_flag = []
+            abiertos, resueltos, tardios_flag = [], [], []
             for _, row in df.iterrows():
                 ab, re, ta = estado_buckets(row[col_estado])
-                # Si hay columna específica de tardío/SLA vencido, úsala antes que la heurística
                 if col_tardio:
                     val = str(row[col_tardio]).strip().lower()
                     ta = any(k in val for k in ["tard", "vencid", "overdue", "fuera de plazo"])
@@ -235,11 +224,8 @@ if panel == "📊 Panel de Estadísticas":
                 resueltos.append(1 if re else 0)
                 tardios_flag.append(1 if ta else 0)
 
-            df["__abiertos__"]  = abiertos
-            df["__resueltos__"] = resueltos
-            df["__tardios__"]   = tardios_flag
+            df["__abiertos__"], df["__resueltos__"], df["__tardios__"] = abiertos, resueltos, tardios_flag
 
-            # Agregación por técnico asignado desde admin
             resumen = df.groupby("__Tecnico__", dropna=False)[["__abiertos__", "__resueltos__", "__tardios__"]].sum().reset_index()
             resumen = resumen.rename(columns={
                 "__Tecnico__": "Técnico",
@@ -248,17 +234,15 @@ if panel == "📊 Panel de Estadísticas":
                 "__tardios__": "Casos tardíos"
             })
 
-            # KPIs
             resumen["Eficiencia (%)"] = (resumen["Casos resueltos"] / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
-            resumen["Eficacia (%)"]   = ((resumen["Casos resueltos"] - resumen["Casos tardíos"]) / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
+            resumen["Eficacia (%)"] = ((resumen["Casos resueltos"] - resumen["Casos tardíos"]) / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
 
             asignados_tot = int(resumen["Casos asignados (abiertos)"].sum())
             resueltos_tot = int(resumen["Casos resueltos"].sum())
-            tardios_tot   = int(resumen["Casos tardíos"].sum())
+            tardios_tot = int(resumen["Casos tardíos"].sum())
             eficiencia_prom = float(resumen["Eficiencia (%)"].mean())
-            eficacia_prom   = float(resumen["Eficacia (%)"].mean())
+            eficacia_prom = float(resumen["Eficacia (%)"].mean())
 
-            # Métricas
             c1, c2, c3, c4 = st.columns(4)
             c1.markdown(f"<div class='metric-card'><div class='metric-value'>{asignados_tot}</div><div class='metric-label'>Asignados (abiertos)</div></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'><div class='metric-value'>{resueltos_tot}</div><div class='metric-label'>Resueltos</div></div>", unsafe_allow_html=True)
@@ -266,40 +250,20 @@ if panel == "📊 Panel de Estadísticas":
             c4.markdown(f"<div class='metric-card'><div class='metric-value'>{eficiencia_prom:.2f}%</div><div class='metric-label'>Eficiencia Prom.</div></div>", unsafe_allow_html=True)
             st.markdown("<hr>", unsafe_allow_html=True)
 
-            # Tabla
             st.dataframe(resumen, use_container_width=True)
 
-            # Gráficos
-            st.markdown("### 📊 Casos por técnico")
-            fig1 = px.bar(
-                resumen,
-                x="Técnico",
-                y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
-                barmode="group",
-                color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"]
-            )
+            fig1 = px.bar(resumen, x="Técnico", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
+                          barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
             st.plotly_chart(fig1, use_container_width=True)
 
-            st.markdown("### 🎯 Eficiencia y eficacia por técnico")
-            fig2 = px.bar(
-                resumen,
-                x="Técnico",
-                y=["Eficiencia (%)", "Eficacia (%)"],
-                barmode="group",
-                color_discrete_sequence=["#FFD166", "#118AB2"]
-            )
+            fig2 = px.bar(resumen, x="Técnico", y=["Eficiencia (%)", "Eficacia (%)"],
+                          barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
             st.plotly_chart(fig2, use_container_width=True)
 
-            # PDF
             pdf = generar_pdf_tabla(
                 resumen[["Técnico", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
-                {
-                    "asignados": asignados_tot,
-                    "resueltos": resueltos_tot,
-                    "tardios": tardios_tot,
-                    "eficiencia_prom": eficiencia_prom,
-                    "eficacia_prom": eficacia_prom
-                }
+                {"asignados": asignados_tot, "resueltos": resueltos_tot, "tardios": tardios_tot,
+                 "eficiencia_prom": eficiencia_prom, "eficacia_prom": eficacia_prom}
             )
             st.download_button("📄 Descargar Reporte PDF", pdf, file_name="reporte_gia_por_tecnico.pdf")
 
