@@ -36,34 +36,20 @@ archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv
 
 if archivo:
     try:
-        # Detectar tipo de archivo y leerlo automáticamente
+        # Detectar tipo de archivo
         if archivo.name.endswith(".csv"):
             df = pd.read_csv(archivo, sep=None, engine="python")
         else:
             df = pd.read_excel(archivo)
 
-        # 🧹 Asegurar nombres de columnas únicos
-        def make_unique(col_list):
-            seen = {}
-            new_cols = []
-            for col in col_list:
-                if col not in seen:
-                    seen[col] = 0
-                    new_cols.append(col)
-                else:
-                    seen[col] += 1
-                    new_cols.append(f"{col}_{seen[col]}")
-            return new_cols
-
-        df.columns = make_unique(df.columns)
-
-        # 🔧 Eliminar columnas duplicadas (si quedaron)
+        # ✅ Eliminar columnas duplicadas y asegurar nombres únicos
+        df.columns = pd.io.common.dedup_names(df.columns)
         df = df.loc[:, ~df.columns.duplicated()]
 
         # Normalizar nombres
         df.columns = [c.strip().lower() for c in df.columns]
 
-        # Buscar y renombrar campos importantes
+        # Buscar columnas clave
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -80,8 +66,9 @@ if archivo:
             if col not in df.columns:
                 df[col] = 0
 
-        # Mantener solo las columnas importantes (nombre técnico + datos)
-        df = df[[df.columns[0]] + columnas]
+        # ✅ Evitar error de selección si hay duplicados
+        primera_columna = df.columns[0]
+        df = df.loc[:, [primera_columna] + [c for c in columnas if c in df.columns]]
 
         # ==============================
         # CÁLCULOS
@@ -110,18 +97,17 @@ if archivo:
         # GRÁFICOS
         # ==============================
         st.markdown("### 📊 Casos por técnico")
-        col_tecnico = df.columns[0]
-        fig1 = px.bar(df, x=col_tecnico, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
+        fig1 = px.bar(df, x=primera_columna, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
         st.plotly_chart(fig1, use_container_width=True)
 
         st.markdown("### 🎯 Eficiencia y eficacia por técnico")
-        fig2 = px.bar(df, x=col_tecnico, y=["Eficiencia (%)", "Eficacia (%)"],
+        fig2 = px.bar(df, x=primera_columna, y=["Eficiencia (%)", "Eficacia (%)"],
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
         # ==============================
-        # GENERAR PDF (SIN KALEIDO)
+        # GENERAR PDF
         # ==============================
         def generar_pdf():
             buffer = BytesIO()
