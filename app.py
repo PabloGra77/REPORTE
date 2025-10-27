@@ -61,20 +61,6 @@ def find_column(df, candidates):
                 return c
     return None
 
-def estado_buckets(estado_val):
-    """Clasifica estado → abierto/resuelto/tardío."""
-    if not isinstance(estado_val, str):
-        estado_val = str(estado_val or "")
-    s = estado_val.strip().lower()
-    abiertos = {"abierto", "abiertos", "nuevo", "en curso", "asignado", "pendiente", "en espera", "procesando"}
-    resueltos = {"resuelto", "cerrado", "solucionado", "finalizado", "completado"}
-    tardios_keys = {"tard", "vencid", "late", "overdue", "fuera de plazo"}
-
-    is_abierto = any(k in s for k in abiertos) and not any(k in s for k in resueltos)
-    is_resuelto = any(k in s for k in resueltos)
-    is_tardio = any(k in s for k in tardios_keys)
-    return is_abierto, is_resuelto, is_tardio
-
 def assign_tecnico_from_tipo(tipo_val, mappings_df):
     """Asigna técnico según patrón configurado."""
     txt = str(tipo_val or "").strip().lower()
@@ -192,18 +178,14 @@ if panel == "📊 Panel de Estadísticas":
         try:
             df = clean_headers_and_read(up)
 
-            # detectar columnas
-            col_tipo   = find_column(df, ["tipo", "categor", "category"])
-            col_estado = find_column(df, ["estado", "status"])
-            col_tardio = find_column(df, ["tard", "vencid", "overdue", "sla"])
+            # ✅ Tomar columnas base directamente
+            col_tipo = df.columns[0]
+            col_abiertos = find_column(df, ["abiert", "asign", "abiertos", "cantidad de casos abiertos"])
+            col_resueltos = find_column(df, ["resuelt", "cerrad", "cantidad de casos resueltos"])
+            col_tardios = find_column(df, ["tard", "vencid", "overdue", "cantidad de casos tardíos"])
 
-            # ✅ si no hay "tipo", usamos la primera columna
-            if col_tipo is None:
-                col_tipo = df.columns[0]
-                st.warning(f"No se encontró columna 'Tipo', se usará la primera: **{col_tipo}**")
-
-            if col_estado is None:
-                st.error("No encontré columna de estado (estado/status).")
+            if not all([col_abiertos, col_resueltos, col_tardios]):
+                st.error("No se encontraron todas las columnas necesarias (abiertos, resueltos, tardíos). Verifica el archivo.")
                 st.stop()
 
             # cargar reglas admin
@@ -212,26 +194,20 @@ if panel == "📊 Panel de Estadísticas":
                 st.warning("No hay reglas de asignación. Configura alguna en el Panel de Administración.")
                 st.stop()
 
+            # asignar técnico según tipo
             df["__Tecnico__"] = df[col_tipo].apply(lambda v: assign_tecnico_from_tipo(v, maps_df))
 
-            abiertos, resueltos, tardios_flag = [], [], []
-            for _, row in df.iterrows():
-                ab, re, ta = estado_buckets(row[col_estado])
-                if col_tardio:
-                    val = str(row[col_tardio]).strip().lower()
-                    ta = any(k in val for k in ["tard", "vencid", "overdue", "fuera de plazo"])
-                abiertos.append(1 if ab else 0)
-                resueltos.append(1 if re else 0)
-                tardios_flag.append(1 if ta else 0)
+            # limpiar y convertir a números
+            for c in [col_abiertos, col_resueltos, col_tardios]:
+                df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0)
 
-            df["__abiertos__"], df["__resueltos__"], df["__tardios__"] = abiertos, resueltos, tardios_flag
-
-            resumen = df.groupby("__Tecnico__", dropna=False)[["__abiertos__", "__resueltos__", "__tardios__"]].sum().reset_index()
+            # agrupar por técnico
+            resumen = df.groupby("__Tecnico__", dropna=False)[[col_abiertos, col_resueltos, col_tardios]].sum().reset_index()
             resumen = resumen.rename(columns={
                 "__Tecnico__": "Técnico",
-                "__abiertos__": "Casos asignados (abiertos)",
-                "__resueltos__": "Casos resueltos",
-                "__tardios__": "Casos tardíos"
+                col_abiertos: "Casos asignados (abiertos)",
+                col_resueltos: "Casos resueltos",
+                col_tardios: "Casos tardíos"
             })
 
             resumen["Eficiencia (%)"] = (resumen["Casos resueltos"] / (resumen["Casos asignados (abiertos)"] + 1e-9)) * 100
@@ -243,6 +219,7 @@ if panel == "📊 Panel de Estadísticas":
             eficiencia_prom = float(resumen["Eficiencia (%)"].mean())
             eficacia_prom = float(resumen["Eficacia (%)"].mean())
 
+            # métricas
             c1, c2, c3, c4 = st.columns(4)
             c1.markdown(f"<div class='metric-card'><div class='metric-value'>{asignados_tot}</div><div class='metric-label'>Asignados (abiertos)</div></div>", unsafe_allow_html=True)
             c2.markdown(f"<div class='metric-card'><div class='metric-value'>{resueltos_tot}</div><div class='metric-label'>Resueltos</div></div>", unsafe_allow_html=True)
@@ -250,8 +227,10 @@ if panel == "📊 Panel de Estadísticas":
             c4.markdown(f"<div class='metric-card'><div class='metric-value'>{eficiencia_prom:.2f}%</div><div class='metric-label'>Eficiencia Prom.</div></div>", unsafe_allow_html=True)
             st.markdown("<hr>", unsafe_allow_html=True)
 
+            # tabla
             st.dataframe(resumen, use_container_width=True)
 
+            # gráficos
             fig1 = px.bar(resumen, x="Técnico", y=["Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos"],
                           barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
             st.plotly_chart(fig1, use_container_width=True)
@@ -260,6 +239,7 @@ if panel == "📊 Panel de Estadísticas":
                           barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
             st.plotly_chart(fig2, use_container_width=True)
 
+            # generar PDF
             pdf = generar_pdf_tabla(
                 resumen[["Técnico", "Casos asignados (abiertos)", "Casos resueltos", "Casos tardíos", "Eficiencia (%)", "Eficacia (%)"]],
                 {"asignados": asignados_tot, "resueltos": resueltos_tot, "tardios": tardios_tot,
