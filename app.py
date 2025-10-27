@@ -10,7 +10,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 
 # ===============================
-# CONFIGURACIÓN VISUAL
+# CONFIG VISUAL
 # ===============================
 st.set_page_config(page_title="Panel GIA Lite", page_icon="🤖", layout="wide")
 
@@ -36,23 +36,28 @@ archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv
 
 if archivo:
     try:
-        # Leer sin encabezados para evitar errores
+        # Leer sin encabezado
         if archivo.name.endswith(".csv"):
             df = pd.read_csv(archivo, header=None, sep=None, engine="python", on_bad_lines="skip")
         else:
             df = pd.read_excel(archivo, header=None)
 
-        # Buscar la primera fila que tenga más de una celda válida como encabezado
+        # Buscar fila válida para encabezados
+        header = None
         for i in range(len(df)):
             if df.iloc[i].notna().sum() > 1:
                 header = df.iloc[i].astype(str).fillna("").tolist()
                 df = df.drop(index=i).reset_index(drop=True)
-                df.columns = header
                 break
 
-        # ---------------------------------------
-        # LIMPIEZA Y NORMALIZACIÓN DE ENCABEZADOS
-        # ---------------------------------------
+        # Si no se encontró fila válida, crear encabezados genéricos
+        if header is None:
+            header = [f"columna_{i+1}" for i in range(df.shape[1])]
+
+        # Asignar encabezados
+        df.columns = header
+
+        # Forzar todos los encabezados a texto y únicos
         cols = []
         seen = {}
         for c in df.columns:
@@ -67,9 +72,9 @@ if archivo:
         df = df.loc[:, ~df.columns.duplicated()]
         df.columns = [c.lower() for c in df.columns]
 
-        # ---------------------------------------
+        # ===============================
         # DETECCIÓN DE COLUMNAS CLAVE
-        # ---------------------------------------
+        # ===============================
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -88,22 +93,22 @@ if archivo:
         primera_columna = df.columns[0]
         df = df[[primera_columna] + columnas]
 
-        # ---------------------------------------
+        # ===============================
         # CONVERSIÓN DE DATOS
-        # ---------------------------------------
+        # ===============================
         for col in columnas:
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
 
-        # ---------------------------------------
+        # ===============================
         # CÁLCULOS
-        # ---------------------------------------
+        # ===============================
         df["Eficiencia (%)"] = (df["Casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Eficacia (%)"] = ((df["Casos resueltos"] - df["Casos tardíos"]) /
                               (df["Casos asignados"] + 1e-9)) * 100
 
-        # ---------------------------------------
+        # ===============================
         # MÉTRICAS
-        # ---------------------------------------
+        # ===============================
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         eficacia_prom = round(df["Eficacia (%)"].mean(), 2)
         asignados = int(df["Casos asignados"].sum())
@@ -117,9 +122,9 @@ if archivo:
 
         st.markdown("---")
 
-        # ---------------------------------------
+        # ===============================
         # GRAFICOS
-        # ---------------------------------------
+        # ===============================
         st.markdown("### 📊 Casos por técnico")
         fig1 = px.bar(df, x=primera_columna, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
@@ -130,9 +135,9 @@ if archivo:
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ---------------------------------------
+        # ===============================
         # PDF
-        # ---------------------------------------
+        # ===============================
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
