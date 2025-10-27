@@ -36,36 +36,44 @@ archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv
 
 if archivo:
     try:
-        # Leer archivo con detección automática del separador
+        # Leer archivo con separador automático
         if archivo.name.endswith(".csv"):
-            df = pd.read_csv(archivo, sep=None, engine="python")
+            df = pd.read_csv(archivo, sep=None, engine="python", on_bad_lines="skip")
         else:
             df = pd.read_excel(archivo)
 
-        # ---------------------------
-        # Eliminar encabezados duplicados
-        # ---------------------------
-        def make_unique(cols):
-            seen = {}
-            new_cols = []
-            for c in cols:
-                if c not in seen:
-                    seen[c] = 0
-                    new_cols.append(c)
-                else:
-                    seen[c] += 1
-                    new_cols.append(f"{c}_{seen[c]}")
-            return new_cols
+        # ---------------------------------------
+        # LIMPIEZA DE DUPLICADOS Y CABECERAS
+        # ---------------------------------------
 
-        df.columns = make_unique(df.columns)
+        # 1️⃣ Eliminar columnas totalmente vacías
+        df = df.dropna(axis=1, how='all')
 
-        # Asegurar nombres únicos y limpiar espacios
+        # 2️⃣ Generar nombres únicos para columnas repetidas
+        cols = []
+        seen = {}
+        for c in df.columns:
+            c = str(c).strip() if c and str(c).strip() != '' else "columna_sin_nombre"
+            if c not in seen:
+                seen[c] = 0
+                cols.append(c)
+            else:
+                seen[c] += 1
+                cols.append(f"{c}_{seen[c]}")
+        df.columns = cols
+
+        # 3️⃣ Eliminar columnas duplicadas (por si acaso)
         df = df.loc[:, ~df.columns.duplicated()]
-        df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # ---------------------------
-        # Detectar columnas importantes
-        # ---------------------------
+        # 4️⃣ Resetear índice para evitar errores de axis duplicado
+        df = df.reset_index(drop=True)
+
+        # ---------------------------------------
+        # NORMALIZACIÓN
+        # ---------------------------------------
+        df.columns = [c.lower() for c in df.columns]
+
+        # Buscar columnas clave
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -74,6 +82,7 @@ if archivo:
                 mapeo[c] = "Casos resueltos"
             elif "tard" in c:
                 mapeo[c] = "Casos tardíos"
+
         df = df.rename(columns=mapeo)
 
         # Crear columnas faltantes si no existen
@@ -82,23 +91,22 @@ if archivo:
             if col not in df.columns:
                 df[col] = 0
 
-        # ---------------------------
-        # Seleccionar solo columnas relevantes
-        # ---------------------------
+        # ---------------------------------------
+        # SELECCIÓN DE COLUMNAS
+        # ---------------------------------------
         primera_columna = df.columns[0]
-        seleccion = [primera_columna] + [c for c in columnas if c in df.columns]
-        df = df.loc[:, seleccion]
+        df = df[[primera_columna] + columnas]
 
-        # ---------------------------
+        # ---------------------------------------
         # CÁLCULOS
-        # ---------------------------
+        # ---------------------------------------
         df["Eficiencia (%)"] = (df["Casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Eficacia (%)"] = ((df["Casos resueltos"] - df["Casos tardíos"]) /
                               (df["Casos asignados"] + 1e-9)) * 100
 
-        # ---------------------------
-        # MÉTRICAS GENERALES
-        # ---------------------------
+        # ---------------------------------------
+        # MÉTRICAS
+        # ---------------------------------------
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         eficacia_prom = round(df["Eficacia (%)"].mean(), 2)
         asignados = int(df["Casos asignados"].sum())
@@ -112,9 +120,9 @@ if archivo:
 
         st.markdown("---")
 
-        # ---------------------------
+        # ---------------------------------------
         # GRÁFICOS
-        # ---------------------------
+        # ---------------------------------------
         st.markdown("### 📊 Casos por técnico")
         fig1 = px.bar(df, x=primera_columna, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
@@ -125,9 +133,9 @@ if archivo:
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ---------------------------
+        # ---------------------------------------
         # PDF
-        # ---------------------------
+        # ---------------------------------------
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
