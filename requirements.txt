@@ -3,6 +3,3 @@ streamlit
 plotly
 reportlab
 kaleido
-
-
-Agregar Kaleido para exportar gráficos en PDF
