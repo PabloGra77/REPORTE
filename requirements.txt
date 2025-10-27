@@ -2,5 +2,4 @@ pandas
 streamlit
 plotly
 reportlab
-openpyxl
 kaleido
