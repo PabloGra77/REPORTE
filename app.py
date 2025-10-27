@@ -10,7 +10,7 @@ from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 
 # ===============================
-# CONFIG VISUAL
+# CONFIGURACIÓN VISUAL
 # ===============================
 st.set_page_config(page_title="Panel GIA Lite", page_icon="🤖", layout="wide")
 
@@ -30,30 +30,33 @@ body {background-color:#0E1117; color:white;}
 st.markdown("<h2 style='color:#3A86FF'>🤖 Panel GIA Lite</h2>", unsafe_allow_html=True)
 
 # ===============================
-# SUBIR ARCHIVO
+# CARGA DE ARCHIVO
 # ===============================
 archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv"])
 
 if archivo:
     try:
-        # Leemos el archivo sin encabezados
+        # Leer sin encabezados para evitar errores
         if archivo.name.endswith(".csv"):
             df = pd.read_csv(archivo, header=None, sep=None, engine="python", on_bad_lines="skip")
         else:
             df = pd.read_excel(archivo, header=None)
 
-        # Tomamos la primera fila con texto válido como encabezado
+        # Buscar la primera fila que tenga más de una celda válida como encabezado
         for i in range(len(df)):
             if df.iloc[i].notna().sum() > 1:
-                df.columns = df.iloc[i].astype(str).str.strip().fillna("")
+                header = df.iloc[i].astype(str).fillna("").tolist()
                 df = df.drop(index=i).reset_index(drop=True)
+                df.columns = header
                 break
 
-        # Eliminar duplicados y limpiar nombres
+        # ---------------------------------------
+        # LIMPIEZA Y NORMALIZACIÓN DE ENCABEZADOS
+        # ---------------------------------------
         cols = []
         seen = {}
         for c in df.columns:
-            c = str(c).strip() if c else "columna_sin_nombre"
+            c = str(c).strip() if c and str(c).strip() != '' else "columna_sin_nombre"
             if c in seen:
                 seen[c] += 1
                 c = f"{c}_{seen[c]}"
@@ -64,9 +67,9 @@ if archivo:
         df = df.loc[:, ~df.columns.duplicated()]
         df.columns = [c.lower() for c in df.columns]
 
-        # ----------------------------
-        # IDENTIFICAR COLUMNAS CLAVE
-        # ----------------------------
+        # ---------------------------------------
+        # DETECCIÓN DE COLUMNAS CLAVE
+        # ---------------------------------------
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -85,16 +88,22 @@ if archivo:
         primera_columna = df.columns[0]
         df = df[[primera_columna] + columnas]
 
-        # ----------------------------
-        # CALCULOS
-        # ----------------------------
+        # ---------------------------------------
+        # CONVERSIÓN DE DATOS
+        # ---------------------------------------
+        for col in columnas:
+            df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+
+        # ---------------------------------------
+        # CÁLCULOS
+        # ---------------------------------------
         df["Eficiencia (%)"] = (df["Casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Eficacia (%)"] = ((df["Casos resueltos"] - df["Casos tardíos"]) /
                               (df["Casos asignados"] + 1e-9)) * 100
 
-        # ----------------------------
+        # ---------------------------------------
         # MÉTRICAS
-        # ----------------------------
+        # ---------------------------------------
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         eficacia_prom = round(df["Eficacia (%)"].mean(), 2)
         asignados = int(df["Casos asignados"].sum())
@@ -108,9 +117,9 @@ if archivo:
 
         st.markdown("---")
 
-        # ----------------------------
+        # ---------------------------------------
         # GRAFICOS
-        # ----------------------------
+        # ---------------------------------------
         st.markdown("### 📊 Casos por técnico")
         fig1 = px.bar(df, x=primera_columna, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
@@ -121,9 +130,9 @@ if archivo:
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ----------------------------
+        # ---------------------------------------
         # PDF
-        # ----------------------------
+        # ---------------------------------------
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
