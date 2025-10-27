@@ -9,9 +9,9 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import A4
 
-# ====================================
+# ===============================
 # CONFIGURACIÓN VISUAL
-# ====================================
+# ===============================
 st.set_page_config(page_title="Panel GIA Lite", page_icon="🤖", layout="wide")
 
 st.markdown("""
@@ -29,27 +29,43 @@ body {background-color:#0E1117; color:white;}
 
 st.markdown("<h2 style='color:#3A86FF'>🤖 Panel GIA Lite</h2>", unsafe_allow_html=True)
 
-# ====================================
-# SUBIR ARCHIVO
-# ====================================
+# ===============================
+# CARGA DE ARCHIVO
+# ===============================
 archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv"])
 
 if archivo:
     try:
-        # Detectar tipo de archivo
+        # Leer archivo con detección automática del separador
         if archivo.name.endswith(".csv"):
             df = pd.read_csv(archivo, sep=None, engine="python")
         else:
             df = pd.read_excel(archivo)
 
-        # ✅ Eliminar columnas duplicadas y asegurar nombres únicos
-        df.columns = pd.io.common.dedup_names(df.columns)
+        # ---------------------------
+        # Eliminar encabezados duplicados
+        # ---------------------------
+        def make_unique(cols):
+            seen = {}
+            new_cols = []
+            for c in cols:
+                if c not in seen:
+                    seen[c] = 0
+                    new_cols.append(c)
+                else:
+                    seen[c] += 1
+                    new_cols.append(f"{c}_{seen[c]}")
+            return new_cols
+
+        df.columns = make_unique(df.columns)
+
+        # Asegurar nombres únicos y limpiar espacios
         df = df.loc[:, ~df.columns.duplicated()]
+        df.columns = [str(c).strip().lower() for c in df.columns]
 
-        # Normalizar nombres
-        df.columns = [c.strip().lower() for c in df.columns]
-
-        # Buscar columnas clave
+        # ---------------------------
+        # Detectar columnas importantes
+        # ---------------------------
         mapeo = {}
         for c in df.columns:
             if "abiert" in c or "asign" in c:
@@ -60,26 +76,29 @@ if archivo:
                 mapeo[c] = "Casos tardíos"
         df = df.rename(columns=mapeo)
 
-        # Validar columnas necesarias
+        # Crear columnas faltantes si no existen
         columnas = ["Casos asignados", "Casos resueltos", "Casos tardíos"]
         for col in columnas:
             if col not in df.columns:
                 df[col] = 0
 
-        # ✅ Evitar error de selección si hay duplicados
+        # ---------------------------
+        # Seleccionar solo columnas relevantes
+        # ---------------------------
         primera_columna = df.columns[0]
-        df = df.loc[:, [primera_columna] + [c for c in columnas if c in df.columns]]
+        seleccion = [primera_columna] + [c for c in columnas if c in df.columns]
+        df = df.loc[:, seleccion]
 
-        # ==============================
+        # ---------------------------
         # CÁLCULOS
-        # ==============================
+        # ---------------------------
         df["Eficiencia (%)"] = (df["Casos resueltos"] / (df["Casos asignados"] + 1e-9)) * 100
         df["Eficacia (%)"] = ((df["Casos resueltos"] - df["Casos tardíos"]) /
                               (df["Casos asignados"] + 1e-9)) * 100
 
-        # ==============================
+        # ---------------------------
         # MÉTRICAS GENERALES
-        # ==============================
+        # ---------------------------
         eficiencia_prom = round(df["Eficiencia (%)"].mean(), 2)
         eficacia_prom = round(df["Eficacia (%)"].mean(), 2)
         asignados = int(df["Casos asignados"].sum())
@@ -93,9 +112,9 @@ if archivo:
 
         st.markdown("---")
 
-        # ==============================
+        # ---------------------------
         # GRÁFICOS
-        # ==============================
+        # ---------------------------
         st.markdown("### 📊 Casos por técnico")
         fig1 = px.bar(df, x=primera_columna, y=["Casos asignados", "Casos resueltos", "Casos tardíos"],
                       barmode="group", color_discrete_sequence=["#3A86FF", "#06D6A0", "#EF476F"])
@@ -106,9 +125,9 @@ if archivo:
                       barmode="group", color_discrete_sequence=["#FFD166", "#118AB2"])
         st.plotly_chart(fig2, use_container_width=True)
 
-        # ==============================
-        # GENERAR PDF
-        # ==============================
+        # ---------------------------
+        # PDF
+        # ---------------------------
         def generar_pdf():
             buffer = BytesIO()
             fecha = datetime.now().strftime("%Y-%m-%d")
