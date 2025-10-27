@@ -2,6 +2,14 @@ import pandas as pd
 import streamlit as st
 import plotly.express as px
 from datetime import datetime
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import inch
+import tempfile
 
 # ==============================
 # CONFIGURACIÓN DE LA APP
@@ -111,7 +119,63 @@ st.write(f"📋 Casos asignados a **{tecnico_sel}**: {len(df_filtrado)}")
 st.dataframe(df_filtrado, use_container_width=True)
 
 # ==============================
-# RESUMEN FINAL
+# GENERAR PDF
 # ==============================
 st.markdown("<hr>", unsafe_allow_html=True)
-st.markdown(f"📅 **Fecha de reporte:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+st.subheader("📄 Generar reporte PDF")
+
+def generar_pdf(df_sla, tecnico_sel, df_filtrado, fig):
+    buffer = BytesIO()
+    fecha = datetime.now().strftime("%Y-%m-%d")
+    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=30, bottomMargin=20)
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle('title', parent=styles['Title'], alignment=TA_CENTER, textColor=colors.HexColor("#3A86FF"))
+
+    story = []
+    story.append(Paragraph(f"Reporte GIA - Cumplimiento SLA ({fecha})", title))
+    story.append(Spacer(1, 10))
+    story.append(Paragraph(f"Cumplimiento promedio del SLA: {df_sla['SLA (%)'].mean():.2f}%", styles["Normal"]))
+    story.append(Spacer(1, 10))
+
+    # Tabla de SLA
+    data = [["Técnico", "Asignados", "Resueltos", "Tardíos", "SLA (%)"]]
+    for _, r in df_sla.iterrows():
+        data.append([r[col_tecnico], int(r[col_abiertos]), int(r[col_resueltos]), int(r[col_tardios]), f"{r['SLA (%)']:.2f}%"])
+
+    tabla = Table(data, colWidths=[90, 80, 80, 80, 70])
+    tabla.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 0.3, colors.gray)
+    ]))
+    story.append(tabla)
+    story.append(Spacer(1, 15))
+
+    # Agregar gráfico
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    fig.write_image(tmp.name, width=800, height=400)
+    story.append(Image(tmp.name, width=6.3*inch, height=3.2*inch))
+    story.append(Spacer(1, 20))
+
+    # Detalle del técnico seleccionado
+    story.append(Paragraph(f"Detalle de casos del técnico: {tecnico_sel}", styles["Heading3"]))
+    story.append(Spacer(1, 10))
+    cols = list(df_filtrado.columns[:5])
+    data_det = [cols] + df_filtrado[cols].astype(str).values.tolist()[:10]  # muestra los primeros 10
+    tabla_det = Table(data_det, colWidths=[90]*len(cols))
+    tabla_det.setStyle(TableStyle([
+        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#118AB2")),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+        ('GRID', (0,0), (-1,-1), 0.3, colors.gray)
+    ]))
+    story.append(tabla_det)
+
+    doc.build(story)
+    pdf = buffer.getvalue()
+    buffer.close()
+    return pdf
+
+pdf_bytes = generar_pdf(df_sla, tecnico_sel, df_filtrado, fig)
+st.download_button("📥 Descargar Reporte PDF", pdf_bytes, file_name="reporte_SLA_GIA.pdf")
