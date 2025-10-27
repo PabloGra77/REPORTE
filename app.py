@@ -36,20 +36,31 @@ archivo = st.file_uploader("📂 Cargar archivo Excel o CSV", type=["xlsx", "csv
 
 if archivo:
     try:
-        # Leer archivo con manejo de errores por duplicados
+        # Detectar tipo de archivo y leerlo automáticamente
         if archivo.name.endswith(".csv"):
-            # Lee las columnas sin encabezado y luego asigna nombres únicos
-            df = pd.read_csv(archivo, sep=None, engine="python", header=0)
-            # Forzar nombres únicos si hay repetidos
-            df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
+            df = pd.read_csv(archivo, sep=None, engine="python")
         else:
             df = pd.read_excel(archivo)
-            df.columns = pd.io.parsers.ParserBase({'names': df.columns})._maybe_dedup_names(df.columns)
 
-        # 🔧 Eliminar columnas duplicadas
+        # 🧹 Asegurar nombres de columnas únicos
+        def make_unique(col_list):
+            seen = {}
+            new_cols = []
+            for col in col_list:
+                if col not in seen:
+                    seen[col] = 0
+                    new_cols.append(col)
+                else:
+                    seen[col] += 1
+                    new_cols.append(f"{col}_{seen[col]}")
+            return new_cols
+
+        df.columns = make_unique(df.columns)
+
+        # 🔧 Eliminar columnas duplicadas (si quedaron)
         df = df.loc[:, ~df.columns.duplicated()]
 
-        # Normalizar nombres de columnas
+        # Normalizar nombres
         df.columns = [c.strip().lower() for c in df.columns]
 
         # Buscar y renombrar campos importantes
