@@ -71,10 +71,11 @@ WORK_SCHEDULE = {
 
 # SLA por prioridad (en HORAS hábiles)
 SLA_HOURS = {
-    "muy alta": 4,      # 4 horas
-    "alta": 8,          # 8 horas (1 día)
-    "media": 16,        # 2 días hábiles
-    "baja": 32          # 4 días hábiles
+    "muy alta": 4,           # 4 horas
+    "alta": 8,               # 8 horas (1 día)
+    "media": 16,             # 2 días hábiles
+    "baja": 32,              # 4 días hábiles
+    "muy baja": 2/60         # 2 minutos
 }
 
 # =========================
