@@ -581,3 +581,67 @@ if not is_tv:
     cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
                     "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)",
                     "Minutos Hábiles", "SLA Límite (min)", "Estado SLA"]
+    
+    # Funcion para colorear filas tardias
+    def highlight_tardios(row):
+        if "Tardío" in str(row["Estado SLA"]):
+            return ['background-color: #8B0000; color: white; font-weight: bold'] * len(row)
+        return [''] * len(row)
+    
+    st.dataframe(
+        df_display[cols_mostrar].style.apply(highlight_tardios, axis=1),
+        use_container_width=True, 
+        hide_index=True
+    )
+    
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # DESCARGAR PDF
+    st.subheader("📥 Descargar Reporte PDF")
+    
+    try:
+        pdf_data = generar_pdf_mejorado(resumen, df_filtrado, col_tec, tec_seleccionado)
+        timestamp = now_bogota.strftime("%Y%m%d_%H%M")
+        st.download_button(
+            label="📄 Descargar Reporte Completo en PDF",
+            data=pdf_data,
+            file_name=f"GIA_SLA_Completo_{timestamp}.pdf",
+            mime="application/pdf",
+            use_container_width=True
+        )
+    except Exception as e:
+        st.error(f"Error al generar PDF: {str(e)}")
+        st.info("Por favor reporta este error al administrador.")
+
+# MODO TV
+else:
+    st.markdown("<h1 style='text-align:center;color:#3A86FF;'>📺 GIA | Panel de Rendimiento</h1>", unsafe_allow_html=True)
+    st.caption("IPS Goleman - Visualizacion en Tiempo Real")
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    uploaded = st.file_uploader("📎 Subir reporte CSV", type=["csv"])
+    if not uploaded:
+        st.info("Esperando archivo...")
+        st.stop()
+    
+    df = pd.read_csv(uploaded, sep=";")
+    df_procesado = procesar_datos(df)
+    resumen = generar_resumen(df_procesado, "Asignado a - Técnico")
+    
+    fig = px.bar(
+        resumen.sort_values("SLA (%)", ascending=True),
+        x="SLA (%)", y="Asignado a - Técnico",
+        orientation="h",
+        color="SLA (%)",
+        color_continuous_scale=["#EF476F", "#FFD166", "#06D6A0"],
+        text_auto=".1f"
+    )
+    fig.update_layout(template="plotly_dark", height=600,
+                     title_font=dict(size=26, color="#3A86FF"),
+                     font=dict(size=16))
+    st.plotly_chart(fig, use_container_width=True)
+    
+    sla_global = resumen["SLA (%)"].mean()
+    hora = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
+    st.markdown(f"<h2 style='text-align:center;color:#06D6A0;'>SLA Global: {sla_global:.1f}%</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align:center;color:#AAA;'>Actualizado: {hora}</p>", unsafe_allow_html=True)
