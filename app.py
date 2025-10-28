@@ -615,33 +615,232 @@ if not is_tv:
 
 # MODO TV
 else:
-    st.markdown("<h1 style='text-align:center;color:#3A86FF;'>📺 GIA | Panel de Rendimiento</h1>", unsafe_allow_html=True)
-    st.caption("IPS Goleman - Visualizacion en Tiempo Real")
+    st.markdown("<h1 style='text-align:center;color:#3A86FF;'>📺 GIA | PANEL DE RENDIMIENTO EN VIVO</h1>", unsafe_allow_html=True)
+    st.caption("IPS Goleman - Dashboard en Tiempo Real")
     st.markdown("<hr>", unsafe_allow_html=True)
     
-    uploaded = st.file_uploader("📎 Subir reporte CSV", type=["csv"])
+    # JavaScript para auto-refresh cada 30 segundos
+    st.markdown("""
+    <script>
+        setTimeout(function(){
+            window.location.reload();
+        }, 30000);
+    </script>
+    """, unsafe_allow_html=True)
+    
+    uploaded = st.file_uploader("📎 Subir reporte CSV", type=["csv"], key="tv_upload")
     if not uploaded:
-        st.info("Esperando archivo...")
+        st.info("⏳ Esperando archivo para iniciar el dashboard...")
         st.stop()
     
     df = pd.read_csv(uploaded, sep=";")
     df_procesado = procesar_datos(df)
     resumen = generar_resumen(df_procesado, "Asignado a - Técnico")
     
-    fig = px.bar(
-        resumen.sort_values("SLA (%)", ascending=True),
-        x="SLA (%)", y="Asignado a - Técnico",
-        orientation="h",
-        color="SLA (%)",
-        color_continuous_scale=["#EF476F", "#FFD166", "#06D6A0"],
-        text_auto=".1f"
-    )
-    fig.update_layout(template="plotly_dark", height=600,
-                     title_font=dict(size=26, color="#3A86FF"),
-                     font=dict(size=16))
-    st.plotly_chart(fig, use_container_width=True)
+    if resumen.empty:
+        st.warning("No hay datos para mostrar")
+        st.stop()
     
-    sla_global = resumen["SLA (%)"].mean()
-    hora = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
-    st.markdown(f"<h2 style='text-align:center;color:#06D6A0;'>SLA Global: {sla_global:.1f}%</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align:center;color:#AAA;'>Actualizado: {hora}</p>", unsafe_allow_html=True)
+    # HORA Y MÉTRICAS GLOBALES
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        hora = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
+        fecha = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
+        st.markdown(f"""
+        <div style='background:#1E1E1E;border:2px solid #06D6A0;border-radius:15px;padding:25px;text-align:center;'>
+            <div style='color:#FFD166;font-size:16px;font-weight:600;'>🕐 HORA ACTUAL</div>
+            <div style='color:#06D6A0;font-size:38px;font-weight:900;margin:10px 0;'>{hora}</div>
+            <div style='color:#AAA;font-size:14px;'>{fecha}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        sla_global = resumen["SLA (%)"].mean()
+        total_casos = int(resumen["Asignados"].sum())
+        total_resueltos = int(resumen["Resueltos"].sum())
+        
+        color_sla = "#06D6A0" if sla_global >= 90 else "#FFD166" if sla_global >= 70 else "#EF476F"
+        
+        st.markdown(f"""
+        <div style='background:#1E1E1E;border:3px solid {color_sla};border-radius:15px;padding:25px;text-align:center;'>
+            <div style='color:#3A86FF;font-size:18px;font-weight:700;'>📊 SLA GLOBAL DEL EQUIPO</div>
+            <div style='color:{color_sla};font-size:65px;font-weight:900;margin:15px 0;text-shadow:0 0 20px {color_sla};'>
+                {sla_global:.1f}%
+            </div>
+            <div style='color:#AAA;font-size:14px;'>{total_resueltos} resueltos de {total_casos} casos</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        mejor_tecnico = resumen.sort_values("SLA (%)", ascending=False).iloc[0]
+        st.markdown(f"""
+        <div style='background:#1E1E1E;border:2px solid #FFD166;border-radius:15px;padding:25px;text-align:center;'>
+            <div style='color:#FFD166;font-size:16px;font-weight:600;'>🏆 MVP DEL DÍA</div>
+            <div style='color:white;font-size:16px;font-weight:700;margin:10px 0;'>{str(mejor_tecnico['Asignado a - Técnico'])[:20]}</div>
+            <div style='color:#06D6A0;font-size:32px;font-weight:900;'>{mejor_tecnico['SLA (%)']:.1f}%</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<hr style='margin:30px 0;'>", unsafe_allow_html=True)
+    
+    # RANKING TOP 3 - PODIO
+    st.markdown("<h2 style='text-align:center;color:#3A86FF;margin-bottom:30px;'>🏆 PODIO DE TECNICOS</h2>", unsafe_allow_html=True)
+    
+    top3 = resumen.sort_values("SLA (%)", ascending=False).head(3)
+    
+    if len(top3) >= 3:
+        col_2do, col_1ro, col_3ro = st.columns([1, 1, 1])
+        
+        # PRIMER LUGAR (centro)
+        with col_1ro:
+            primero = top3.iloc[0]
+            st.markdown(f"""
+            <div style='background:linear-gradient(135deg, #FFD700 0%, #FFA500 100%);
+                        border-radius:20px;padding:30px;text-align:center;
+                        box-shadow:0 0 30px rgba(255,215,0,0.5);transform:scale(1.1);'>
+                <div style='font-size:50px;margin-bottom:10px;'>🥇</div>
+                <div style='color:#000;font-size:20px;font-weight:900;margin:15px 0;'>
+                    {str(primero['Asignado a - Técnico'])[:25]}
+                </div>
+                <div style='color:#000;font-size:48px;font-weight:900;text-shadow:2px 2px 4px rgba(0,0,0,0.3);'>
+                    {primero['SLA (%)']:.1f}%
+                </div>
+                <div style='color:#000;font-size:14px;margin-top:10px;'>
+                    {int(primero['Resueltos'])} casos resueltos
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # SEGUNDO LUGAR (izquierda)
+        with col_2do:
+            segundo = top3.iloc[1]
+            st.markdown(f"""
+            <div style='background:linear-gradient(135deg, #C0C0C0 0%, #A8A8A8 100%);
+                        border-radius:20px;padding:25px;text-align:center;margin-top:40px;
+                        box-shadow:0 0 20px rgba(192,192,192,0.4);'>
+                <div style='font-size:40px;margin-bottom:10px;'>🥈</div>
+                <div style='color:#000;font-size:16px;font-weight:800;margin:10px 0;'>
+                    {str(segundo['Asignado a - Técnico'])[:25]}
+                </div>
+                <div style='color:#000;font-size:38px;font-weight:900;'>
+                    {segundo['SLA (%)']:.1f}%
+                </div>
+                <div style='color:#000;font-size:12px;margin-top:8px;'>
+                    {int(segundo['Resueltos'])} casos resueltos
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # TERCER LUGAR (derecha)
+        with col_3ro:
+            tercero = top3.iloc[2]
+            st.markdown(f"""
+            <div style='background:linear-gradient(135deg, #CD7F32 0%, #B87333 100%);
+                        border-radius:20px;padding:25px;text-align:center;margin-top:40px;
+                        box-shadow:0 0 20px rgba(205,127,50,0.4);'>
+                <div style='font-size:40px;margin-bottom:10px;'>🥉</div>
+                <div style='color:#FFF;font-size:16px;font-weight:800;margin:10px 0;'>
+                    {str(tercero['Asignado a - Técnico'])[:25]}
+                </div>
+                <div style='color:#FFF;font-size:38px;font-weight:900;'>
+                    {tercero['SLA (%)']:.1f}%
+                </div>
+                <div style='color:#FFF;font-size:12px;margin-top:8px;'>
+                    {int(tercero['Resueltos'])} casos resueltos
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown("<hr style='margin:40px 0;'>", unsafe_allow_html=True)
+    
+    # TABLA RANKING COMPLETO
+    st.markdown("<h2 style='text-align:center;color:#3A86FF;margin-bottom:25px;'>📊 RANKING COMPLETO</h2>", unsafe_allow_html=True)
+    
+    # Crear tabla HTML personalizada
+    ranking_html = """
+    <style>
+        .ranking-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 18px;
+            background: #1E1E1E;
+            border-radius: 15px;
+            overflow: hidden;
+        }
+        .ranking-table thead {
+            background: linear-gradient(135deg, #3A86FF 0%, #5FA8FF 100%);
+            color: white;
+        }
+        .ranking-table th {
+            padding: 20px;
+            text-align: center;
+            font-weight: 800;
+            font-size: 16px;
+        }
+        .ranking-table td {
+            padding: 18px;
+            text-align: center;
+            border-bottom: 1px solid #333;
+        }
+        .ranking-table tr:hover {
+            background: #2A2A2A;
+        }
+        .rank-num {
+            font-size: 24px;
+            font-weight: 900;
+            color: #FFD166;
+        }
+        .sla-excellent { color: #06D6A0; font-weight: 900; font-size: 22px; }
+        .sla-good { color: #FFD166; font-weight: 900; font-size: 22px; }
+        .sla-poor { color: #EF476F; font-weight: 900; font-size: 22px; }
+    </style>
+    <table class="ranking-table">
+        <thead>
+            <tr>
+                <th>🏅 PUESTO</th>
+                <th>👤 TÉCNICO</th>
+                <th>📋 ASIGNADOS</th>
+                <th>✅ RESUELTOS</th>
+                <th>❌ TARDÍOS</th>
+                <th>📊 SLA %</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    for idx, (_, row) in enumerate(resumen.sort_values("SLA (%)", ascending=False).iterrows(), 1):
+        sla_val = row["SLA (%)"]
+        if sla_val >= 90:
+            sla_class = "sla-excellent"
+        elif sla_val >= 70:
+            sla_class = "sla-good"
+        else:
+            sla_class = "sla-poor"
+        
+        ranking_html += f"""
+        <tr>
+            <td><span class="rank-num">#{idx}</span></td>
+            <td style="text-align:left;font-weight:700;color:white;">{row['Asignado a - Técnico']}</td>
+            <td style="color:#AAA;font-weight:600;">{int(row['Asignados'])}</td>
+            <td style="color:#06D6A0;font-weight:700;">{int(row['Resueltos'])}</td>
+            <td style="color:#EF476F;font-weight:700;">{int(row['Tardíos'])}</td>
+            <td><span class="{sla_class}">{sla_val:.1f}%</span></td>
+        </tr>
+        """
+    
+    ranking_html += """
+        </tbody>
+    </table>
+    """
+    
+    st.markdown(ranking_html, unsafe_allow_html=True)
+    
+    # Pie de página con actualización automática
+    st.markdown("<hr style='margin:30px 0;'>", unsafe_allow_html=True)
+    st.markdown(f"""
+    <div style='text-align:center;color:#AAA;font-size:14px;'>
+        <p>🔄 Panel actualizado: {datetime.now(ZoneInfo('America/Bogota')).strftime('%H:%M:%S')}</p>
+        <p style='font-size:12px;'>Dashboard se actualiza automáticamente cada 30 segundos</p>
+    </div>
+    """, unsafe_allow_html=True)
