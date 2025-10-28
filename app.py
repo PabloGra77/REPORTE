@@ -579,4 +579,5 @@ if not is_tv:
     )
     
     cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
-                    "Fecha Apertura (Bogotá)",
+                    "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)",
+                    "Minutos Hábiles", "SLA Límite (min)", "Estado SLA"]
