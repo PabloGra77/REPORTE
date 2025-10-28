@@ -169,26 +169,39 @@ def procesar_datos(df: pd.DataFrame):
     # Determinar si está resuelto
     df["Resuelto"] = df["Estados"].apply(is_resolved)
     
-    # Para casos resueltos, usar "Última modificación" como fecha de cierre
+    # Para casos resueltos, usar "Última modificación" como fecha de cierre real
+    # Esto es cuando el técnico cerró el caso
     df["Fecha Cierre (Bogotá)"] = df.apply(
         lambda r: to_timestamp(r["Última modificación"]) if r["Resuelto"] else pd.NaT,
         axis=1
     )
+    
+    # IMPORTANTE: Para el cálculo de SLA, usar la fecha de cierre real
+    # no la fecha límite teórica
     
     # Calcular horas hábiles transcurridas
     def calc_horas(row):
         if pd.isna(row["Fecha Apertura (Bogotá)"]):
             return 0.0
         
-        end_date = row["Fecha Cierre (Bogotá)"] if row["Resuelto"] else datetime.now()
+        # Para casos resueltos, usar fecha de cierre. Para abiertos, usar ahora
+        if row["Resuelto"] and pd.notna(row["Fecha Cierre (Bogotá)"]):
+            end_date = row["Fecha Cierre (Bogotá)"]
+        else:
+            end_date = datetime.now()
+        
         return business_hours_between(row["Fecha Apertura (Bogotá)"], end_date)
     
     df["Horas Hábiles"] = df.apply(calc_horas, axis=1)
     
+    # Agregar columna de minutos para facilitar lectura (especialmente para SLA muy cortos)
+    df["Minutos Hábiles"] = df["Horas Hábiles"] * 60
+    
     # Límite SLA según prioridad
     df["SLA Límite (h)"] = df["Prioridad"].apply(get_sla_hours)
+    df["SLA Límite (min)"] = df["SLA Límite (h)"] * 60
     
-    # Estado del SLA
+    # Estado del SLA - CORREGIDO para detectar correctamente tardíos
     def estado_sla(row):
         if not row["Resuelto"]:
             # Caso abierto: verificar si ya superó el SLA
@@ -196,7 +209,7 @@ def procesar_datos(df: pd.DataFrame):
                 return "⏰ Abierto (Tardío)"
             return "🟢 Abierto"
         else:
-            # Caso cerrado
+            # Caso cerrado: comparar tiempo real vs límite
             if row["Horas Hábiles"] <= row["SLA Límite (h)"]:
                 return "✅ Cumplido"
             return "❌ Tardío"
@@ -411,8 +424,21 @@ if not is_tv:
     # DETALLE DE CASOS
     st.subheader("📝 Detalle de Casos")
     cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
-                    "Fecha Apertura (Bogotá)", "Horas Hábiles", "SLA Límite (h)", "Estado SLA"]
-    st.dataframe(df_filtrado[cols_mostrar], use_container_width=True, hide_index=True)
+                    "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)",
+                    "Minutos Hábiles", "SLA Límite (min)", "Estado SLA"]
+    
+    # Función para colorear filas tardías
+    def highlight_tardios(row):
+        if "Tardío" in str(row["Estado SLA"]):
+            return ['background-color: #8B0000; color: white; font-weight: bold'] * len(row)
+        return [''] * len(row)
+    
+    df_display = df_filtrado[cols_mostrar].copy()
+    st.dataframe(
+        df_display.style.apply(highlight_tardios, axis=1),
+        use_container_width=True, 
+        hide_index=True
+    )
     
     # DESCARGAR PDF
     st.subheader("📥 Descargar Reporte")
