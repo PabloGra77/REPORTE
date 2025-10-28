@@ -1,181 +1,300 @@
 import pandas as pd
 import streamlit as st
-import plotly.express as px
-from datetime import datetime
+from datetime import datetime, timedelta, time
 from io import BytesIO
 from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.lib.enums import TA_CENTER
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import inch
-import tempfile
+from reportlab.lib.enums import TA_CENTER
+import unicodedata
 
-# ==============================
+# =========================
 # CONFIGURACIÓN DE LA APP
-# ==============================
-st.set_page_config(page_title="GIA - SLA por Técnico", page_icon="🤖", layout="wide")
+# =========================
+st.set_page_config(page_title="GIA - SLA inteligente (1 archivo)", page_icon="🤖", layout="wide")
 
 st.markdown("""
 <style>
-body {background-color:#0E1117; color:white;}
-.metric-card {
-    background:#1E1E1E; border:1px solid #3A86FF33;
-    border-radius:12px; padding:14px; text-align:center;
-    box-shadow:0 0 6px rgba(58,134,255,0.25);
-}
+body {background:#0E1117; color:white;}
+.metric-card { background:#1E1E1E; border:1px solid #3A86FF33; border-radius:12px; padding:14px; text-align:center; box-shadow:0 0 6px rgba(58,134,255,0.25);}
 .metric-value { font-size:22px; font-weight:800; }
 .metric-label { color:#FF9F1C; font-size:12px; }
 hr {border:0; height:1px; background:#333; margin:18px 0;}
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Cumplimiento SLA y Detalle de Casos</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — SLA automático con horario laboral</h2>", unsafe_allow_html=True)
 st.markdown("<div style='color:#DADADA;'>IPS Goleman | Inteligencia para el Soporte</div>", unsafe_allow_html=True)
+
+# =========================
+# PARÁMETROS DE NEGOCIO
+# =========================
+# Horario laboral por día (0=Lunes ... 6=Domingo) en hora local
+# L-J 07:00–17:00, V 07:00–16:00, S 08:00–13:00, D cerrado
+WORK_SCHEDULE = {
+    0: [(time(7, 0), time(17, 0))],  # Lunes
+    1: [(time(7, 0), time(17, 0))],  # Martes
+    2: [(time(7, 0), time(17, 0))],  # Miércoles
+    3: [(time(7, 0), time(17, 0))],  # Jueves
+    4: [(time(7, 0), time(16, 0))],  # Viernes
+    5: [(time(8, 0), time(13, 0))],  # Sábado
+    6: []                             # Domingo
+}
+
+# SLA por prioridad (en HORAS hábiles)
+# Nota: interpretamos 1 "día" de SLA = 8 horas hábiles
+PRIORITY_SLA_HOURS = {
+    "muy alta": 4,
+    "alta": 8,
+    "media": 2 * 8,   # 2 días hábiles
+    "baja":  4 * 8    # 4 días hábiles
+}
+
+# =========================
+# UTILIDADES
+# =========================
+def strip_accents(s: str) -> str:
+    if s is None:
+        return ""
+    return "".join(ch for ch in unicodedata.normalize("NFD", str(s)) if unicodedata.category(ch) != "Mn")
+
+def norm(s: str) -> str:
+    return strip_accents(s).strip().lower()
+
+def read_any(file):
+    if file.name.lower().endswith(".csv"):
+        return pd.read_csv(file, sep=None, engine="python", on_bad_lines="skip", encoding="utf-8")
+    return pd.read_excel(file)
+
+def to_ts(s):
+    # Intento flexible de parsear fecha/hora
+    if pd.isna(s): 
+        return pd.NaT
+    return pd.to_datetime(s, errors="coerce", dayfirst=True, utc=False)
+
+def business_seconds_between(start: datetime, end: datetime) -> float:
+    """Calcula segundos hábiles entre dos timestamps usando WORK_SCHEDULE."""
+    if pd.isna(start) or pd.isna(end) or end <= start:
+        return 0.0
+
+    total = 0.0
+    cur = start
+    # Iteramos día por día hasta 'end' (límite de seguridad 365 días)
+    for _ in range(370):
+        day = cur.date()
+        day_start = datetime.combine(day, time.min)
+        day_end = datetime.combine(day, time.max)
+
+        # intervalos laborales del día
+        for (h_ini, h_fin) in WORK_SCHEDULE[cur.weekday()]:
+            seg_ini = datetime.combine(day, h_ini)
+            seg_fin = datetime.combine(day, h_fin)
+
+            # tramo efectivo que solapa con [start, end]
+            tramo_ini = max(cur, seg_ini)
+            tramo_fin = min(end, seg_fin)
+
+            if tramo_fin > tramo_ini:
+                total += (tramo_fin - tramo_ini).total_seconds()
+
+        # pasar al siguiente día a las 00:00
+        next_day = day_end + timedelta(seconds=1)
+        if next_day >= end:
+            break
+        cur = next_day
+
+    return total
+
+def horas_habiles(start, end):
+    return business_seconds_between(start, end) / 3600.0
+
+def sla_limit_hours(priority_val: str) -> float:
+    p = norm(priority_val)
+    # buscar coincidencia aproximada
+    for key in PRIORITY_SLA_HOURS:
+        if key in p:
+            return PRIORITY_SLA_HOURS[key]
+    # si no se encuentra, asumir 8h (un día)
+    return 8.0
+
+# =========================
+# RELOJES (diferencia horaria)
+# =========================
+st.markdown("### 🕒 Reloj")
+col_r1, col_r2, col_r3 = st.columns(3)
+offset = col_r1.number_input("Diferencia (horas) Servidor GIA vs. hora local", value=5.0, step=0.5)
+now_local = datetime.now()
+now_server = now_local + timedelta(hours=offset)
+col_r2.markdown(f"<div class='metric-card'><div class='metric-value'>{now_local.strftime('%Y-%m-%d %H:%M:%S')}</div><div class='metric-label'>Hora Local</div></div>", unsafe_allow_html=True)
+col_r3.markdown(f"<div class='metric-card'><div class='metric-value'>{now_server.strftime('%Y-%m-%d %H:%M:%S')}</div><div class='metric-label'>Hora Servidor (estimada)</div></div>", unsafe_allow_html=True)
+
 st.markdown("<hr>", unsafe_allow_html=True)
 
-# ==============================
-# CARGA DE ARCHIVOS
-# ==============================
-col1, col2 = st.columns(2)
-sla_file = col1.file_uploader("📊 Cargar archivo SLA (tecnicos.csv)", type=["csv", "xlsx"])
-detalle_file = col2.file_uploader("📁 Cargar archivo de Detalle de Casos (glpi_6.csv)", type=["csv", "xlsx"])
+# =========================
+# CARGA DE ARCHIVO DETALLADO
+# =========================
+uploaded = st.file_uploader("📁 Subir reporte detallado (CSV o XLSX) exportado de GIA/GLPI", type=["csv", "xlsx"])
 
-if not sla_file or not detalle_file:
-    st.info("Por favor, sube ambos archivos para generar el informe.")
+if not uploaded:
+    st.info("Sube el archivo detallado para calcular el SLA automáticamente.")
     st.stop()
 
-# ==============================
-# LECTURA DE ARCHIVOS
-# ==============================
-def leer_archivo(file):
-    if file.name.endswith(".csv"):
-        return pd.read_csv(file, sep=None, engine="python", on_bad_lines="skip")
-    else:
-        return pd.read_excel(file)
+df = read_any(uploaded)
+df.columns = [str(c).strip() for c in df.columns]
 
-df_sla = leer_archivo(sla_file)
-df_detalle = leer_archivo(detalle_file)
+# Detectar columnas (nombres típicos de GLPI en español)
+def pick_col(posibles, requerido=True, fallback=None):
+    for c in df.columns:
+        nc = norm(c)
+        if any(p in nc for p in posibles):
+            return c
+    if fallback and fallback in df.columns:
+        return fallback
+    if requerido:
+        st.error(f"❌ No encontré columna requerida. Busqué: {posibles}")
+        st.stop()
+    return None
 
-# ==============================
-# PROCESAR SLA (tecnicos.csv)
-# ==============================
-df_sla.columns = [c.strip() for c in df_sla.columns]
-col_tecnico = df_sla.columns[0]
-col_abiertos = [c for c in df_sla.columns if "abiert" in c.lower() or "asign" in c.lower()][0]
-col_resueltos = [c for c in df_sla.columns if "resuelt" in c.lower()][0]
-col_tardios = [c for c in df_sla.columns if "tard" in c.lower() or "vencid" in c.lower()][0]
+col_creacion = pick_col(["creacion", "apertura", "fecha de creacion", "fecha de apertura", "created"])
+col_cierre   = pick_col(["cierre", "resolucion", "resolución", "fecha de cierre", "solucion", "closed"], requerido=False)
+col_prioridad= pick_col(["prioridad", "urgencia", "priority"])
+col_tecnico  = pick_col(["asignado a", "tecnico", "técnico", "responsable", "assigned"], fallback="Asignado a - Técnico")
+col_estado   = pick_col(["estado", "status"], requerido=False)
+col_caso     = pick_col(["categoria", "categoría", "asunto", "titulo", "título", "tema", "subject"], requerido=False)
 
-for c in [col_abiertos, col_resueltos, col_tardios]:
-    df_sla[c] = pd.to_numeric(df_sla[c], errors="coerce").fillna(0)
+# Parsear fechas
+df["_creacion"] = df[col_creacion].apply(to_ts)
+if col_cierre:
+    df["_cierre"] = df[col_cierre].apply(to_ts)
+else:
+    df["_cierre"] = pd.NaT
 
-# Cálculo de SLA
-df_sla["SLA (%)"] = ((df_sla[col_resueltos] - df_sla[col_tardios]) / (df_sla[col_abiertos] + 1e-9)) * 100
+# Duración en horas hábiles (solo si cerrado)
+df["Horas hábiles"] = df.apply(
+    lambda r: horas_habiles(r["_creacion"], r["_cierre"]) if pd.notna(r["_cierre"]) else 0.0,
+    axis=1
+)
 
-# ==============================
-# VISUALIZACIÓN SLA
-# ==============================
-st.subheader("📈 Cumplimiento de SLA por Técnico")
+# Límite SLA por prioridad (horas hábiles)
+df["SLA (h)"] = df[col_prioridad].apply(sla_limit_hours)
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Casos Asignados (Total)", int(df_sla[col_abiertos].sum()))
-c2.metric("Casos Resueltos (Total)", int(df_sla[col_resueltos].sum()))
-c3.metric("Casos Tardíos (Total)", int(df_sla[col_tardios].sum()))
+# Estado SLA
+def estado_sla(row):
+    if pd.isna(row["_cierre"]):
+        return "Abierto"
+    return "Cumplido" if row["Horas hábiles"] <= row["SLA (h)"] else "Tardío"
 
-sla_promedio = df_sla["SLA (%)"].mean()
-st.markdown(f"<div class='metric-card'><div class='metric-value'>{sla_promedio:.2f}%</div><div class='metric-label'>Cumplimiento SLA Promedio</div></div>", unsafe_allow_html=True)
+df["Estado SLA"] = df.apply(estado_sla, axis=1)
 
-st.dataframe(df_sla[[col_tecnico, col_abiertos, col_resueltos, col_tardios, "SLA (%)"]], use_container_width=True)
+# =========================
+# RESUMEN POR TÉCNICO
+# =========================
+# Asignados = todos los casos del técnico
+# Resueltos = cerrados
+# Tardíos = cerrados fuera de SLA
+def is_closed(row):
+    if pd.notna(row["_cierre"]):
+        return True
+    if col_estado:
+        return norm(row[col_estado]).startswith("res") or "cerr" in norm(row[col_estado])
+    return False
 
-fig = px.bar(df_sla, x=col_tecnico, y="SLA (%)",
-             color="SLA (%)", color_continuous_scale="Viridis",
-             title="Cumplimiento del SLA por Técnico")
-st.plotly_chart(fig, use_container_width=True)
+df["_cerrado"] = df.apply(is_closed, axis=1)
+df["_tardio"]  = (df["_cerrado"]) & (df["Estado SLA"] == "Tardío")
 
-# ==============================
-# DETALLE DE CASOS
-# ==============================
+resumen = (
+    df.groupby(col_tecnico)
+      .agg(Asignados=("Estado SLA", "count"),
+           Resueltos=("_cerrado", "sum"),
+           Tardíos=("_tardio", "sum"))
+      .reset_index()
+)
+
+resumen["SLA (%)"] = ((resumen["Resueltos"] - resumen["Tardíos"]) / (resumen["Asignados"] + 1e-9)) * 100
+
+# =========================
+# UI: MÉTRICAS + TABLAS
+# =========================
+st.subheader("📈 Resumen SLA por técnico")
+c1, c2, c3, c4 = st.columns(4)
+c1.markdown(f"<div class='metric-card'><div class='metric-value'>{int(resumen['Asignados'].sum())}</div><div class='metric-label'>Asignados (total)</div></div>", unsafe_allow_html=True)
+c2.markdown(f"<div class='metric-card'><div class='metric-value'>{int(resumen['Resueltos'].sum())}</div><div class='metric-label'>Resueltos (total)</div></div>", unsafe_allow_html=True)
+c3.markdown(f"<div class='metric-card'><div class='metric-value'>{int(resumen['Tardíos'].sum())}</div><div class='metric-label'>Tardíos (total)</div></div>", unsafe_allow_html=True)
+c4.markdown(f"<div class='metric-card'><div class='metric-value'>{resumen['SLA (%)'].mean():.2f}%</div><div class='metric-label'>SLA promedio</div></div>", unsafe_allow_html=True)
+
+st.dataframe(resumen[[col_tecnico, "Asignados", "Resueltos", "Tardíos", "SLA (%)"]], use_container_width=True)
+
 st.markdown("<hr>", unsafe_allow_html=True)
-st.subheader("🧾 Detalle de Casos por Técnico")
+st.subheader("🧾 Detalle y filtros")
 
-# Buscar la columna del técnico en el detalle
-col_tecnico_detalle = None
-for c in df_detalle.columns:
-    if any(k in c.lower() for k in ["tecn", "asignado", "respon", "autor"]):
-        col_tecnico_detalle = c
-        break
+tec_list = sorted(df[col_tecnico].dropna().unique().tolist())
+tec_sel = st.selectbox("👤 Técnico", tec_list) if tec_list else None
 
-if not col_tecnico_detalle:
-    st.error("❌ No se encontró la columna del técnico en el archivo de detalle.")
-    st.stop()
+if tec_sel:
+    df_view = df[df[col_tecnico] == tec_sel].copy()
+else:
+    df_view = df.copy()
 
-# Selector de técnico
-tecnicos = sorted(df_detalle[col_tecnico_detalle].dropna().unique().tolist())
-tecnico_sel = st.selectbox("👤 Selecciona un técnico para ver sus casos:", tecnicos)
+cols_show = [c for c in [col_caso, col_prioridad, col_tecnico, col_creacion, col_cierre, col_estado, "Horas hábiles", "SLA (h)", "Estado SLA"] if c in df_view.columns or c in ["Horas hábiles", "SLA (h)", "Estado SLA"]]
+st.dataframe(df_view[cols_show], use_container_width=True)
 
-# Mostrar casos de ese técnico
-df_filtrado = df_detalle[df_detalle[col_tecnico_detalle] == tecnico_sel]
-st.write(f"📋 Casos asignados a **{tecnico_sel}**: {len(df_filtrado)}")
-st.dataframe(df_filtrado, use_container_width=True)
-
-# ==============================
-# GENERAR PDF
-# ==============================
+# =========================
+# PDF (sin Kaleido)
+# =========================
 st.markdown("<hr>", unsafe_allow_html=True)
-st.subheader("📄 Generar reporte PDF")
+st.subheader("📄 Descargar reporte PDF")
 
-def generar_pdf(df_sla, tecnico_sel, df_filtrado, fig):
-    buffer = BytesIO()
-    fecha = datetime.now().strftime("%Y-%m-%d")
-    doc = SimpleDocTemplate(buffer, pagesize=A4, topMargin=30, bottomMargin=20)
+def build_pdf(df_sum: pd.DataFrame, df_tardios: pd.DataFrame) -> bytes:
+    buf = BytesIO()
+    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=30, bottomMargin=20)
     styles = getSampleStyleSheet()
-    title = ParagraphStyle('title', parent=styles['Title'], alignment=TA_CENTER, textColor=colors.HexColor("#3A86FF"))
+    title = ParagraphStyle('t', parent=styles['Title'], alignment=TA_CENTER, textColor=colors.HexColor("#3A86FF"))
 
     story = []
-    story.append(Paragraph(f"Reporte GIA - Cumplimiento SLA ({fecha})", title))
-    story.append(Spacer(1, 10))
-    story.append(Paragraph(f"Cumplimiento promedio del SLA: {df_sla['SLA (%)'].mean():.2f}%", styles["Normal"]))
-    story.append(Spacer(1, 10))
+    story.append(Paragraph("GIA — Reporte de SLA", title))
+    story.append(Paragraph(f"Fecha (local): {fecha}", styles["Normal"]))
+    story.append(Paragraph(f"Diferencia horaria estimada servidor: {offset:+.1f} h", styles["Normal"]))
+    story.append(Spacer(1, 8))
 
-    # Tabla de SLA
-    data = [["Técnico", "Asignados", "Resueltos", "Tardíos", "SLA (%)"]]
-    for _, r in df_sla.iterrows():
-        data.append([r[col_tecnico], int(r[col_abiertos]), int(r[col_resueltos]), int(r[col_tardios]), f"{r['SLA (%)']:.2f}%"])
-
-    tabla = Table(data, colWidths=[90, 80, 80, 80, 70])
-    tabla.setStyle(TableStyle([
+    # Resumen
+    story.append(Paragraph("Resumen por técnico", styles["Heading3"]))
+    header = [col_tecnico, "Asignados", "Resueltos", "Tardíos", "SLA (%)"]
+    data = [header] + df_sum[[col_tecnico, "Asignados", "Resueltos", "Tardíos", "SLA (%)"]].round(2).values.tolist()
+    table = Table(data, colWidths=[120, 70, 70, 70, 70])
+    table.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('GRID', (0,0), (-1,-1), 0.3, colors.gray)
+        ('GRID',  (0,0), (-1,-1), 0.3, colors.gray),
+        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold')
     ]))
-    story.append(tabla)
-    story.append(Spacer(1, 15))
-
-    # Agregar gráfico
-    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-    fig.write_image(tmp.name, width=800, height=400)
-    story.append(Image(tmp.name, width=6.3*inch, height=3.2*inch))
-    story.append(Spacer(1, 20))
-
-    # Detalle del técnico seleccionado
-    story.append(Paragraph(f"Detalle de casos del técnico: {tecnico_sel}", styles["Heading3"]))
+    story.append(table)
     story.append(Spacer(1, 10))
-    cols = list(df_filtrado.columns[:5])
-    data_det = [cols] + df_filtrado[cols].astype(str).values.tolist()[:10]  # muestra los primeros 10
-    tabla_det = Table(data_det, colWidths=[90]*len(cols))
-    tabla_det.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#118AB2")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('GRID', (0,0), (-1,-1), 0.3, colors.gray)
-    ]))
-    story.append(tabla_det)
+
+    # Tardíos (top 15)
+    if not df_tardios.empty:
+        story.append(Paragraph("Casos tardíos (primeros 15)", styles["Heading3"]))
+        cols_det = [c for c in [col_caso, col_tecnico, col_prioridad, col_creacion, col_cierre, "Horas hábiles", "SLA (h)"] if c]
+        det = [ [str(c) for c in cols_det] ]
+        for _, r in df_tardios.head(15).iterrows():
+            det.append([str(r.get(c, "")) for c in cols_det])
+        tbl2 = Table(det, colWidths=[80]*len(cols_det))
+        tbl2.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#118AB2")),
+            ('TEXTCOLOR', (0,0), (-1,0), colors.white),
+            ('ALIGN', (0,0), (-1,-1), 'CENTER'),
+            ('GRID',  (0,0), (-1,-1), 0.3, colors.gray),
+        ]))
+        story.append(tbl2)
 
     doc.build(story)
-    pdf = buffer.getvalue()
-    buffer.close()
+    pdf = buf.getvalue()
+    buf.close()
     return pdf
 
-pdf_bytes = generar_pdf(df_sla, tecnico_sel, df_filtrado, fig)
-st.download_button("📥 Descargar Reporte PDF", pdf_bytes, file_name="reporte_SLA_GIA.pdf")
+df_tardios = df[df["Estado SLA"] == "Tardío"].copy()
+pdf_bytes = build_pdf(resumen, df_tardios)
+st.download_button("📥 Descargar PDF de SLA", pdf_bytes, file_name="GIA_reporte_SLA.pdf")
