@@ -146,10 +146,23 @@ def business_hours_between(start: datetime, end: datetime) -> float:
 
 def get_sla_hours(priority: str) -> float:
     """Retorna las horas SLA según la prioridad"""
+    if pd.isna(priority):
+        return 8.0
+    
     priority_norm = norm(priority)
-    for key, hours in SLA_HOURS.items():
-        if key in priority_norm:
-            return hours
+    
+    # Orden de verificación: de más específico a menos específico
+    if "muy baja" in priority_norm or "muybaja" in priority_norm:
+        return 2/60  # 2 minutos
+    elif "muy alta" in priority_norm or "muyalta" in priority_norm:
+        return 4
+    elif "alta" in priority_norm:
+        return 8
+    elif "media" in priority_norm:
+        return 16
+    elif "baja" in priority_norm:
+        return 32
+    
     return 8.0  # Por defecto: 8 horas
 
 def is_resolved(estado: str) -> bool:
@@ -423,6 +436,13 @@ if not is_tv:
     
     # DETALLE DE CASOS
     st.subheader("📝 Detalle de Casos")
+    
+    # Preparar DataFrame para mostrar
+    df_display = df_filtrado.copy()
+    df_display["Fecha Cierre (Bogotá)"] = df_display["Fecha Cierre (Bogotá)"].apply(
+        lambda x: "Sin cerrar" if pd.isna(x) else x
+    )
+    
     cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
                     "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)",
                     "Minutos Hábiles", "SLA Límite (min)", "Estado SLA"]
@@ -433,9 +453,8 @@ if not is_tv:
             return ['background-color: #8B0000; color: white; font-weight: bold'] * len(row)
         return [''] * len(row)
     
-    df_display = df_filtrado[cols_mostrar].copy()
     st.dataframe(
-        df_display.style.apply(highlight_tardios, axis=1),
+        df_display[cols_mostrar].style.apply(highlight_tardios, axis=1),
         use_container_width=True, 
         hide_index=True
     )
