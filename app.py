@@ -16,13 +16,13 @@ import unicodedata
 # =========================
 st.set_page_config(page_title="GIA - SLA Inteligente", page_icon="🤖", layout="wide")
 
-# Detectar modo TV por query string (?tv=1)
+# Detectar modo TV
 try:
     is_tv = "tv" in st.query_params and st.query_params.get("tv") in ("1", "true", "True")
 except Exception:
     is_tv = False
 
-# Tema oscuro fijo
+# Tema oscuro
 st.markdown("""
 <style>
 :root, body, [data-testid="stAppViewContainer"] { background: #0E1117 !important; color: #FFF !important; }
@@ -38,7 +38,16 @@ footer { visibility: hidden !important; }
 }
 .metric-value { font-size:22px; font-weight:800; color:white; }
 .metric-label { color:#FF9F1C; font-size:12px; }
-.stDownloadButton button { background:#3A86FF !important; color:white !important; border:none !important; }
+.clock-card {
+  background:#1E1E1E; border:2px solid #06D6A0;
+  border-radius:12px; padding:16px; text-align:center;
+  box-shadow:0 0 8px rgba(6,214,160,0.3);
+}
+.clock-value { font-size:28px; font-weight:900; color:#06D6A0; }
+.clock-label { color:#FFD166; font-size:14px; font-weight:600; }
+.stDownloadButton button {
+  background:#3A86FF !important; color:white !important; border:none !important;
+}
 .stDownloadButton button:hover { background:#5FA8FF !important; }
 hr {border:0; height:1px; background:#333; margin:18px 0;}
 </style>
@@ -47,266 +56,220 @@ hr {border:0; height:1px; background:#333; margin:18px 0;}
 # =========================
 # PARÁMETROS DE NEGOCIO
 # =========================
+OFFSET_HOURS = 5.0  # Servidor tiene +5h respecto a Bogotá
+
+# Horario laboral (0=Lunes...6=Domingo)
 WORK_SCHEDULE = {
-    0:[(time(7,0), time(17,0))],
-    1:[(time(7,0), time(17,0))],
-    2:[(time(7,0), time(17,0))],
-    3:[(time(7,0), time(17,0))],
-    4:[(time(7,0), time(16,0))],  # Viernes
-    5:[(time(8,0), time(13,0))],  # Sábado
-    6:[]
+    0: [(time(7,0), time(17,0))],   # Lunes
+    1: [(time(7,0), time(17,0))],   # Martes
+    2: [(time(7,0), time(17,0))],   # Miércoles
+    3: [(time(7,0), time(17,0))],   # Jueves
+    4: [(time(7,0), time(16,0))],   # Viernes
+    5: [(time(8,0), time(13,0))],   # Sábado
+    6: []                            # Domingo
 }
 
-PRIORITY_SLA_HOURS = {"muy alta":4, "alta":8, "media":16, "baja":32}
+# SLA por prioridad (en HORAS hábiles)
+SLA_HOURS = {
+    "muy alta": 4,      # 4 horas
+    "alta": 8,          # 8 horas (1 día)
+    "media": 16,        # 2 días hábiles
+    "baja": 32          # 4 días hábiles
+}
 
 # =========================
-# FUNCIONES AUXILIARES
+# UTILIDADES
 # =========================
-def strip_accents(s: str) -> str:
-    if s is None: return ""
-    return "".join(ch for ch in unicodedata.normalize("NFD", str(s)) if unicodedata.category(ch) != "Mn")
-
 def norm(s: str) -> str:
-    return strip_accents(str(s)).lower().strip()
+    """Normaliza texto: sin acentos, minúsculas, sin espacios extra"""
+    if pd.isna(s) or s is None:
+        return ""
+    s = str(s)
+    s = "".join(ch for ch in unicodedata.normalize("NFD", s) if unicodedata.category(ch) != "Mn")
+    return s.lower().strip()
 
-def read_any(file):
-    name = file.name.lower()
-    if name.endswith(".csv"):
-        try:
-            return pd.read_csv(file, sep=None, engine="python", on_bad_lines="skip")
-        except Exception:
-            file.seek(0)
-            return pd.read_csv(file, on_bad_lines="skip")
-    return pd.read_excel(file)
+def to_timestamp(fecha_str, offset_hours=OFFSET_HOURS):
+    """Convierte string a datetime y ajusta a hora Bogotá"""
+    if pd.isna(fecha_str):
+        return pd.NaT
+    try:
+        # Intenta parsear con diferentes formatos
+        dt = pd.to_datetime(fecha_str, errors='coerce', dayfirst=True)
+        if pd.isna(dt):
+            return pd.NaT
+        # Restar offset para llevar a hora Bogotá
+        return dt - timedelta(hours=offset_hours)
+    except:
+        return pd.NaT
 
-def to_ts(s):
-    if pd.isna(s): return pd.NaT
-    return pd.to_datetime(s, errors="coerce", dayfirst=True, utc=False)
-
-def business_seconds_between(start: datetime, end: datetime) -> float:
+def business_hours_between(start: datetime, end: datetime) -> float:
+    """Calcula horas hábiles entre dos fechas según WORK_SCHEDULE"""
     if pd.isna(start) or pd.isna(end) or end <= start:
         return 0.0
-    total = 0.0
-    cur = start
-    for _ in range(370):
-        day = cur.date()
-        for (h_ini, h_fin) in WORK_SCHEDULE[cur.weekday()]:
-            seg_ini = datetime.combine(day, h_ini)
-            seg_fin = datetime.combine(day, h_fin)
-            tramo_ini = max(cur, seg_ini)
-            tramo_fin = min(end, seg_fin)
-            if tramo_fin > tramo_ini:
-                total += (tramo_fin - tramo_ini).total_seconds()
-        nxt = datetime.combine(day, time(23,59,59)) + timedelta(seconds=1)
-        if nxt >= end:
+    
+    total_seconds = 0.0
+    current = start
+    max_days = 400  # Límite de seguridad
+    
+    for _ in range(max_days):
+        current_date = current.date()
+        weekday = current.weekday()
+        
+        # Si no hay horario laboral ese día, saltar al siguiente
+        if weekday not in WORK_SCHEDULE or not WORK_SCHEDULE[weekday]:
+            next_day = datetime.combine(current_date + timedelta(days=1), time(0, 0))
+            if next_day >= end:
+                break
+            current = next_day
+            continue
+        
+        # Procesar cada bloque horario del día
+        for (start_time, end_time) in WORK_SCHEDULE[weekday]:
+            block_start = datetime.combine(current_date, start_time)
+            block_end = datetime.combine(current_date, end_time)
+            
+            # Intersección del bloque con el rango [current, end]
+            actual_start = max(current, block_start)
+            actual_end = min(end, block_end)
+            
+            if actual_end > actual_start:
+                total_seconds += (actual_end - actual_start).total_seconds()
+        
+        # Avanzar al siguiente día
+        next_day = datetime.combine(current_date + timedelta(days=1), time(0, 0))
+        if next_day >= end:
             break
-        cur = nxt
-    return total
+        current = next_day
+    
+    return total_seconds / 3600.0  # Convertir a horas
 
-def horas_habiles(start, end) -> float:
-    return business_seconds_between(start, end) / 3600.0
+def get_sla_hours(priority: str) -> float:
+    """Retorna las horas SLA según la prioridad"""
+    priority_norm = norm(priority)
+    for key, hours in SLA_HOURS.items():
+        if key in priority_norm:
+            return hours
+    return 8.0  # Por defecto: 8 horas
 
-def sla_limit_hours(priority_val: str) -> float:
-    p = norm(priority_val)
-    for key, hrs in PRIORITY_SLA_HOURS.items():
-        if key in p:
-            return hrs
-    return 8.0
-
-def pick_col(df: pd.DataFrame, posibles, requerido=True, fallback=None):
-    for c in df.columns:
-        if any(p in norm(c) for p in posibles):
-            return c
-    if fallback and fallback in df.columns:
-        return fallback
-    if requerido:
-        st.error(f"❌ No encontré columna requerida. Busqué: {posibles}")
-        st.stop()
-    return None
+def is_resolved(estado: str) -> bool:
+    """Determina si un caso está resuelto según su estado"""
+    estado_norm = norm(estado)
+    return "resuel" in estado_norm or "cerr" in estado_norm or "solucion" in estado_norm
 
 # =========================
-# CÁLCULO SLA
+# PROCESAMIENTO PRINCIPAL
 # =========================
-def calcular_sla(df: pd.DataFrame, offset_hours: float, col_crea, col_cierre, col_prior, col_tec, col_estado):
-    df["_crea_raw"] = df[col_crea].apply(to_ts)
-    df["_cierre_raw"] = df[col_cierre].apply(to_ts) if col_cierre else pd.NaT
-    df["_crea"] = df["_crea_raw"].apply(lambda t: t - timedelta(hours=offset_hours) if pd.notna(t) else pd.NaT)
-    df["_cierre"] = df["_cierre_raw"].apply(lambda t: t - timedelta(hours=offset_hours) if pd.notna(t) else pd.NaT)
-
-    df["Horas hábiles"] = df.apply(lambda r: horas_habiles(r["_crea"], r["_cierre"]) if pd.notna(r["_cierre"]) else 0.0, axis=1)
-    df["SLA (h)"] = df[col_prior].apply(sla_limit_hours)
-
-    # Estado SLA
-    def estado_sla(row):
-        if pd.isna(row["_cierre"]):
-            return "Abierto"
-        return "Cumplido" if row["Horas hábiles"] <= row["SLA (h)"] else "Tardío"
-    df["Estado SLA"] = df.apply(estado_sla, axis=1)
-
-    # CORRECCIÓN -> Solo marcar cerrado si realmente lo está
-    def is_closed(row):
-        if pd.notna(row["_cierre"]):
-            return True
-        if not col_estado:
-            return False
-        e = norm(row[col_estado])
-        estados_cerrados = ["cerr", "resuelto", "closed", "solucionado", "finalizado"]
-        estados_abiertos = ["asign", "en curso", "pend", "nuevo", "abierto"]
-        if any(x in e for x in estados_abiertos):
-            return False
-        return any(x in e for x in estados_cerrados)
-
-    df["_cerrado"] = df.apply(is_closed, axis=1)
-    df["_tardio"] = (df["_cerrado"]) & (df["Estado SLA"] == "Tardío")
-
-    resumen = (
-        df.groupby(col_tec)
-          .agg(Asignados=(col_crea, "count"),
-               Resueltos=("_cerrado", "sum"),
-               Tardíos=("_tardio", "sum"))
-          .reset_index()
+def procesar_datos(df: pd.DataFrame):
+    """Procesa el DataFrame y calcula todas las métricas SLA"""
+    
+    # Convertir fechas a Bogotá
+    df["Fecha Apertura (Bogotá)"] = df["Fecha de apertura"].apply(to_timestamp)
+    
+    # Determinar si está resuelto
+    df["Resuelto"] = df["Estados"].apply(is_resolved)
+    
+    # Para casos resueltos, usar "Última modificación" como fecha de cierre
+    df["Fecha Cierre (Bogotá)"] = df.apply(
+        lambda r: to_timestamp(r["Última modificación"]) if r["Resuelto"] else pd.NaT,
+        axis=1
     )
-    resumen["SLA (%)"] = ((resumen["Resueltos"] - resumen["Tardíos"]) / (resumen["Resueltos"].replace(0,1))) * 100
+    
+    # Calcular horas hábiles transcurridas
+    def calc_horas(row):
+        if pd.isna(row["Fecha Apertura (Bogotá)"]):
+            return 0.0
+        
+        end_date = row["Fecha Cierre (Bogotá)"] if row["Resuelto"] else datetime.now()
+        return business_hours_between(row["Fecha Apertura (Bogotá)"], end_date)
+    
+    df["Horas Hábiles"] = df.apply(calc_horas, axis=1)
+    
+    # Límite SLA según prioridad
+    df["SLA Límite (h)"] = df["Prioridad"].apply(get_sla_hours)
+    
+    # Estado del SLA
+    def estado_sla(row):
+        if not row["Resuelto"]:
+            # Caso abierto: verificar si ya superó el SLA
+            if row["Horas Hábiles"] > row["SLA Límite (h)"]:
+                return "⏰ Abierto (Tardío)"
+            return "🟢 Abierto"
+        else:
+            # Caso cerrado
+            if row["Horas Hábiles"] <= row["SLA Límite (h)"]:
+                return "✅ Cumplido"
+            return "❌ Tardío"
+    
+    df["Estado SLA"] = df.apply(estado_sla, axis=1)
+    
+    # Clasificación para análisis
+    df["Es Tardío"] = df["Estado SLA"].str.contains("Tardío")
+    
+    return df
 
-    df["Apertura (Bogotá)"] = df["_crea"]
-    df["Cierre (Bogotá)"] = df["_cierre"]
+def generar_resumen(df: pd.DataFrame, col_tecnico: str) -> pd.DataFrame:
+    """Genera resumen por técnico"""
+    
+    resumen = df.groupby(col_tecnico).agg(
+        Asignados=("ID", "count"),
+        Resueltos=("Resuelto", "sum"),
+        Tardíos=("Es Tardío", "sum")
+    ).reset_index()
+    
+    # Calcular SLA% correctamente
+    # SLA% = (Resueltos que cumplieron SLA / Total Resueltos) * 100
+    def calc_sla_pct(row):
+        if row["Resueltos"] == 0:
+            return 0.0
+        cumplidos = row["Resueltos"] - row["Tardíos"]
+        return (cumplidos / row["Resueltos"]) * 100
+    
+    resumen["SLA (%)"] = resumen.apply(calc_sla_pct, axis=1)
+    
+    return resumen
 
-    return df, resumen
-
-# =========================
-# PDF
-# =========================
-def pdf_resumen(resumen: pd.DataFrame, col_tec_name: str, tecnico_filtrado: str | None, desfase_horas: float):
+def generar_pdf(resumen: pd.DataFrame, col_tec: str, filtro_tec: str = None):
+    """Genera reporte PDF"""
     buf = BytesIO()
-    fecha = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y – %H:%M (Bogotá)")
+    fecha = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y – %H:%M")
     doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=30, bottomMargin=20)
     styles = getSampleStyleSheet()
-    title = ParagraphStyle('t', parent=styles['Title'], alignment=TA_CENTER, textColor=colors.HexColor("#3A86FF"))
-    story = [
-        Paragraph("GIA – Reporte de SLA", title),
-        Paragraph(f"Generado el {fecha}", styles["Normal"]),
-        Paragraph(f"Desfase servidor estimado: {desfase_horas:+.1f} h", styles["Normal"])
-    ]
-    if tecnico_filtrado:
-        story.append(Paragraph(f"Técnico filtrado: <b>{tecnico_filtrado}</b>", styles["Normal"]))
-    story.append(Spacer(1, 10))
-
+    title_style = ParagraphStyle('t', parent=styles['Title'], alignment=TA_CENTER, 
+                                 textColor=colors.HexColor("#3A86FF"))
+    
+    story = []
+    story.append(Paragraph("GIA – Reporte de SLA", title_style))
+    story.append(Paragraph(f"Generado: {fecha} (Bogotá)", styles["Normal"]))
+    if filtro_tec:
+        story.append(Paragraph(f"Técnico: <b>{filtro_tec}</b>", styles["Normal"]))
+    story.append(Spacer(1, 12))
+    
+    # Tabla
     data = [["Técnico", "Asignados", "Resueltos", "Tardíos", "SLA (%)"]]
-    for _, r in resumen.iterrows():
-        data.append([r[col_tec_name], int(r["Asignados"]), int(r["Resueltos"]), int(r["Tardíos"]), f"{r['SLA (%)']:.2f}%"])
-    tbl = Table(data, colWidths=[120, 70, 70, 70, 70])
-    tbl.setStyle(TableStyle([
+    for _, row in resumen.iterrows():
+        data.append([
+            str(row[col_tec]),
+            int(row["Asignados"]),
+            int(row["Resueltos"]),
+            int(row["Tardíos"]),
+            f"{row['SLA (%)']:.1f}%"
+        ])
+    
+    tabla = Table(data, colWidths=[120, 70, 70, 70, 70])
+    tabla.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
         ('TEXTCOLOR', (0,0), (-1,0), colors.white),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('GRID', (0,0), (-1,-1), 0.3, colors.gray)
+        ('GRID', (0,0), (-1,-1), 0.5, colors.grey)
     ]))
-    story.append(tbl)
+    story.append(tabla)
+    
     doc.build(story)
     return buf.getvalue()
 
 # =========================
-# UI PRINCIPAL
+# INTERFAZ PRINCIPAL
 # =========================
 if not is_tv:
     st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Análisis de SLA</h2>", unsafe_allow_html=True)
-    st.caption("IPS Goleman | Inteligencia para el Soporte")
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    offset = st.number_input("Diferencia horaria Servidor vs Bogotá (horas)", value=5.0, step=0.5)
-    now_bog = datetime.now(ZoneInfo("America/Bogota"))
-    server_est = now_bog + timedelta(hours=offset)
-
-    c1, c2 = st.columns(2)
-    c1.metric("Hora Bogotá", now_bog.strftime("%Y-%m-%d %H:%M:%S"))
-    c2.metric("Hora Servidor (estimada)", server_est.strftime("%Y-%m-%d %H:%M:%S"))
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    up = st.file_uploader("📎 Subir reporte exportado desde GLPI (Detallado de casos)", type=["csv","xlsx"])
-    if not up:
-        st.stop()
-
-    df = read_any(up)
-    df.columns = [str(c).strip() for c in df.columns]
-    col_crea   = pick_col(df, ["apertura", "creacion", "fecha de apertura", "created"])
-    col_cierre = pick_col(df, ["cierre", "resol", "fecha de cierre", "closed"], requerido=False)
-    col_prior  = pick_col(df, ["prioridad", "urgencia", "priority"])
-    col_tec    = pick_col(df, ["asignado a", "tecn", "responsable", "assigned"], fallback="Asignado a - Técnico")
-    col_estado = pick_col(df, ["estado", "status"], requerido=False)
-
-    df_calc, resumen = calcular_sla(df.copy(), offset, col_crea, col_cierre, col_prior, col_tec, col_estado)
-
-    # Filtro técnico
-    solo_uno = st.checkbox("Consultar un solo técnico")
-    tec_sel = None
-    if solo_uno:
-        tec_list = sorted(df_calc[col_tec].dropna().unique().tolist())
-        tec_sel = st.selectbox("👤 Técnico", tec_list)
-        if tec_sel:
-            resumen = resumen[resumen[col_tec] == tec_sel]
-
-    # KPIs
-    st.subheader("📈 Resumen SLA")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Asignados", int(resumen["Asignados"].sum()))
-    c2.metric("Resueltos", int(resumen["Resueltos"].sum()))
-    c3.metric("Tardíos", int(resumen["Tardíos"].sum()))
-    c4.metric("SLA Promedio (%)", f"{resumen['SLA (%)'].mean():.2f}%")
-
-    st.dataframe(resumen[[col_tec, "Asignados", "Resueltos", "Tardíos", "SLA (%)"]], use_container_width=True)
-
-    # Gráfico
-    if not resumen.empty:
-        fig = px.bar(resumen, x=col_tec, y="SLA (%)", color="SLA (%)",
-                     text_auto=".2f", color_continuous_scale=["#EF476F","#FFD166","#06D6A0"],
-                     title="Cumplimiento SLA por Técnico")
-        fig.update_layout(template="plotly_dark")
-        st.plotly_chart(fig, use_container_width=True)
-
-    # PDF
-    pdf_bytes = pdf_resumen(resumen.rename(columns={col_tec:"Técnico"}), "Técnico", tec_sel, offset)
-    fecha_btn = datetime.now(ZoneInfo("America/Bogota")).strftime("%d-%m-%Y_%H%M")
-    st.download_button(label=f"📥 Descargar reporte PDF (generado el {fecha_btn})",
-                       data=pdf_bytes, file_name=f"GIA_SLA_{fecha_btn}.pdf", mime="application/pdf")
-
-# =========================
-# PANEL TV
-# =========================
-else:
-    st.markdown("<h1 style='text-align:center;color:#3A86FF;'>📺 GIA | Rendimiento del Equipo</h1>", unsafe_allow_html=True)
-    st.caption("IPS Goleman | Inteligencia para el Soporte")
-    st.markdown("<hr>", unsafe_allow_html=True)
-
-    up = st.file_uploader("📎 Subir reporte exportado desde GLPI (Detallado de casos)", type=["csv","xlsx"])
-    if not up:
-        st.stop()
-
-    offset = 5.0
-    df = read_any(up)
-    df.columns = [str(c).strip() for c in df.columns]
-    col_crea   = pick_col(df, ["apertura", "creacion", "fecha de apertura", "created"])
-    col_cierre = pick_col(df, ["cierre", "resol", "fecha de cierre", "closed"], requerido=False)
-    col_prior  = pick_col(df, ["prioridad", "urgencia", "priority"])
-    col_tec    = pick_col(df, ["asignado a", "tecn", "responsable", "assigned"], fallback="Asignado a - Técnico")
-    col_estado = pick_col(df, ["estado", "status"], requerido=False)
-
-    df_calc, resumen = calcular_sla(df.copy(), offset, col_crea, col_cierre, col_prior, col_tec, col_estado)
-    if resumen.empty:
-        st.warning("No hay datos para mostrar.")
-        st.stop()
-
-    fig = px.bar(resumen.sort_values("SLA (%)", ascending=True),
-                 x="SLA (%)", y=col_tec, orientation="h",
-                 color="SLA (%)", text_auto=".1f",
-                 color_continuous_scale=["#EF476F","#FFD166","#06D6A0"],
-                 title="Cumplimiento SLA por Técnico")
-    fig.update_layout(template="plotly_dark", height=600,
-                      title_font=dict(size=28, color="#3A86FF"),
-                      font=dict(size=18, color="white"),
-                      margin=dict(l=120, r=40, t=80, b=40))
-    st.plotly_chart(fig, use_container_width=True)
-
-    prom = resumen["SLA (%)"].mean()
-    hora_bog = datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y – %H:%M:%S")
-    st.markdown(f"<h2 style='text-align:center;color:#06D6A0;'>SLA Global: {prom:.2f}%</h2>", unsafe_allow_html=True)
-    st.markdown(f"<p style='text-align:center;color:#AAA;'>Actualizado: {hora_bog} (Bogotá)</p>", unsafe_allow_html=True)
+    st.caption("IPS Goleman | Inteligencia para
