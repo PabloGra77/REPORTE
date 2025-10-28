@@ -16,9 +16,9 @@ import unicodedata
 # =========================
 st.set_page_config(page_title="GIA - SLA Inteligente", page_icon="🤖", layout="wide")
 
-# Query params (compatible con todas las versiones)
-params = st.experimental_get_query_params()
-is_tv = str(params.get("tv", ["0"])[0]).lower() in ("1", "true", "yes")
+# Detección moderna del modo TV (Streamlit 1.37+)
+params = st.query_params
+is_tv = str(params.get("tv", "0")).lower() in ("1", "true", "yes")
 
 # Tema oscuro fijo
 st.markdown("""
@@ -57,7 +57,7 @@ WORK_SCHEDULE = {
 PRIORITY_SLA_HOURS = {"muy alta":4, "alta":8, "media":16, "baja":32}
 
 # =========================
-# AUXILIARES
+# FUNCIONES AUXILIARES
 # =========================
 def strip_accents(s): return "".join(ch for ch in unicodedata.normalize("NFD", str(s)) if unicodedata.category(ch) != "Mn")
 def norm(s): return strip_accents(str(s)).lower().strip()
@@ -111,30 +111,25 @@ def pick_col(df, posibles, requerido=True, fallback=None):
     return None
 
 # =========================
-# CÁLCULO SLA (corregido)
+# CÁLCULO SLA
 # =========================
 def calcular_sla(df, offset_hours, col_crea, col_cierre, col_prior, col_tec, col_estado):
-    # Normalizar fechas a hora Bogotá (restando el desfase del servidor)
     df["_crea_raw"]   = df[col_crea].apply(to_ts)
     df["_cierre_raw"] = df[col_cierre].apply(to_ts) if col_cierre else pd.NaT
     df["_crea"]   = df["_crea_raw"].apply(lambda t: t - timedelta(hours=offset_hours) if pd.notna(t) else pd.NaT)
     df["_cierre"] = df["_cierre_raw"].apply(lambda t: t - timedelta(hours=offset_hours) if pd.notna(t) else pd.NaT)
 
-    # Horas hábiles & límite SLA por prioridad
     df["Horas hábiles"] = df.apply(lambda r: horas_habiles(r["_crea"], r["_cierre"]) if pd.notna(r["_cierre"]) else 0.0, axis=1)
     df["SLA (h)"] = df[col_prior].apply(sla_limit_hours)
 
-    # Estado SLA: SOLO se evalúa si hay cierre
     def estado_sla(row):
         if pd.isna(row["_cierre"]): return "Abierto"
         return "Cumplido" if row["Horas hábiles"] <= row["SLA (h)"] else "Tardío"
     df["Estado SLA"] = df.apply(estado_sla, axis=1)
 
-    # Cierre real = existe fecha de cierre válida
     df["_cerrado"] = df["_cierre"].notna()
     df["_tardio"]  = df["_cerrado"] & (df["Estado SLA"] == "Tardío")
 
-    # Resumen por técnico
     resumen = (
         df.groupby(col_tec)
           .agg(
@@ -146,13 +141,11 @@ def calcular_sla(df, offset_hours, col_crea, col_cierre, col_prior, col_tec, col
     )
     resumen["Abiertos"] = resumen["Asignados"] - resumen["Resueltos"]
 
-    # SLA% solo con cerrados
     resumen["SLA (%)"] = resumen.apply(
         lambda r: ((r["Resueltos"] - r["Tardíos"]) / r["Resueltos"] * 100) if r["Resueltos"] > 0 else 0,
         axis=1
     )
 
-    # Fechas visibles (Bogotá)
     df["Apertura (Bogotá)"] = df["_crea"]
     df["Cierre (Bogotá)"]   = df["_cierre"]
     return df, resumen
@@ -198,21 +191,19 @@ if not is_tv:
     st.caption("IPS Goleman | Inteligencia para el Soporte")
     st.markdown("<hr>", unsafe_allow_html=True)
 
-    # Desfase entre servidor y Bogotá
     offset = st.number_input("Diferencia horaria Servidor vs Bogotá (horas)", value=5.0, step=0.5)
     now_bog = datetime.now(ZoneInfo("America/Bogota"))
     server_est = now_bog + timedelta(hours=offset)
     c1,c2 = st.columns(2)
     c1.markdown(f"<div class='metric-card'><div class='metric-value'>{now_bog.strftime('%Y-%m-%d %H:%M:%S')}</div><div class='metric-label'>Hora Bogotá</div></div>", unsafe_allow_html=True)
     c2.markdown(f"<div class='metric-card'><div class='metric-value'>{server_est.strftime('%Y-%m-%d %H:%M:%S')}</div><div class='metric-label'>Hora Servidor</div></div>", unsafe_allow_html=True)
-
     st.markdown("<hr>", unsafe_allow_html=True)
+
     up = st.file_uploader("📎 Subir reporte exportado desde GLPI (Detallado de casos)", type=["csv","xlsx"])
     if not up: st.stop()
 
     df = read_any(up)
     df.columns = [str(c).strip() for c in df.columns]
-
     col_crea   = pick_col(df, ["apertura","creacion","created"])
     col_cierre = pick_col(df, ["cierre","resol","closed"], requerido=False)
     col_prior  = pick_col(df, ["prioridad","urgencia","priority"])
@@ -221,21 +212,17 @@ if not is_tv:
 
     df_calc, resumen_all = calcular_sla(df.copy(), offset, col_crea, col_cierre, col_prior, col_tec, col_estado)
 
-    # Filtro por técnico
     st.subheader("📌 Filtros")
     usar_uno = st.checkbox("Consultar un solo técnico")
     if usar_uno:
         lista_tec = sorted([x for x in df_calc[col_tec].dropna().unique().tolist()])
         tec_sel = st.selectbox("👤 Técnico", lista_tec) if lista_tec else None
-        if tec_sel:
-            resumen = resumen_all[resumen_all[col_tec] == tec_sel].copy()
-        else:
-            resumen = resumen_all.copy()
+        resumen = resumen_all[resumen_all[col_tec] == tec_sel].copy() if tec_sel else resumen_all.copy()
     else:
         tec_sel = None
         resumen = resumen_all.copy()
 
-    # === KPI (CONSISTENTES con la tabla) ===
+    # KPI
     st.subheader("📊 Resumen SLA")
     k1,k2,k3,k4,k5 = st.columns(5)
     k1.metric("Asignados", int(resumen["Asignados"].sum()))
@@ -244,8 +231,7 @@ if not is_tv:
     k4.metric("Tardíos",   int(resumen["Tardíos"].sum()))
     k5.metric("SLA Promedio (%)", f"{resumen['SLA (%)'].mean():.2f}%")
 
-    st.dataframe(resumen[[col_tec,"Asignados","Abiertos","Resueltos","Tardíos","SLA (%)"]],
-                 use_container_width=True)
+    st.dataframe(resumen[[col_tec,"Asignados","Abiertos","Resueltos","Tardíos","SLA (%)"]], use_container_width=True)
 
     st.subheader("📈 SLA (%) por técnico")
     if not resumen.empty:
@@ -255,8 +241,6 @@ if not is_tv:
                      title="Cumplimiento SLA por Técnico")
         fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.info("Sin datos para graficar.")
 
     # PDF
     st.subheader("📄 Reporte PDF")
@@ -279,18 +263,14 @@ else:
     offset = st.number_input("Desfase servidor vs Bogotá (horas)", value=5.0, step=0.5)
     df = read_any(up)
     df.columns = [str(c).strip() for c in df.columns]
-
     col_crea   = pick_col(df, ["apertura","creacion","created"])
     col_cierre = pick_col(df, ["cierre","resol","closed"], requerido=False)
     col_prior  = pick_col(df, ["prioridad","urgencia","priority"])
     col_tec    = pick_col(df, ["asignado a","asignado","tecn","responsable","assigned"], fallback="Asignado a - Técnico")
     col_estado = pick_col(df, ["estado","status"], requerido=False)
-
     df_calc, resumen = calcular_sla(df.copy(), offset, col_crea, col_cierre, col_prior, col_tec, col_estado)
-    if resumen.empty:
-        st.info("No hay datos para mostrar.")
-        st.stop()
 
+    if resumen.empty: st.stop()
     fig = px.bar(resumen.sort_values("SLA (%)", ascending=True),
                  x="SLA (%)", y=col_tec, orientation="h",
                  color="SLA (%)", text_auto=".1f",
