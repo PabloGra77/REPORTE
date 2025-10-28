@@ -272,4 +272,189 @@ def generar_pdf(resumen: pd.DataFrame, col_tec: str, filtro_tec: str = None):
 # =========================
 if not is_tv:
     st.markdown("<h2 style='color:#3A86FF'>🤖 GIA — Análisis de SLA</h2>", unsafe_allow_html=True)
-    st.caption("IPS Goleman | Inteligencia para
+    st.caption("IPS Goleman - Inteligencia para el Soporte")
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # RELOJES
+    st.subheader("🕐 Sincronización Horaria")
+    now_bogota = datetime.now(ZoneInfo("America/Bogota"))
+    now_servidor = now_bogota + timedelta(hours=OFFSET_HOURS)
+    
+    col1, col2, col3 = st.columns([2, 2, 1])
+    with col1:
+        st.markdown(f"""
+        <div class='clock-card'>
+            <div class='clock-label'>🇨🇴 HORA BOGOTÁ</div>
+            <div class='clock-value'>{now_bogota.strftime('%H:%M:%S')}</div>
+            <div style='color:#AAA;font-size:11px;'>{now_bogota.strftime('%d/%m/%Y')}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class='clock-card'>
+            <div class='clock-label'>🖥️ HORA SERVIDOR GIA</div>
+            <div class='clock-value'>{now_servidor.strftime('%H:%M:%S')}</div>
+            <div style='color:#AAA;font-size:11px;'>{now_servidor.strftime('%d/%m/%Y')}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class='clock-card'>
+            <div class='clock-label'>⚙️ DESFASE</div>
+            <div class='clock-value'>+{OFFSET_HOURS:.0f}h</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    # SUBIR ARCHIVO
+    uploaded = st.file_uploader("📎 Subir reporte de GIA (CSV)", type=["csv"])
+    
+    if not uploaded:
+        st.info("📌 Sube el archivo CSV exportado desde GIA para comenzar el análisis.")
+        st.stop()
+    
+    # Leer CSV con separador correcto
+    try:
+        df = pd.read_csv(uploaded, sep=";", encoding="utf-8")
+    except:
+        try:
+            df = pd.read_csv(uploaded, sep=",", encoding="utf-8")
+        except Exception as e:
+            st.error(f"Error al leer el archivo: {str(e)}")
+            st.stop()
+    
+    # Verificar columnas necesarias
+    required_cols = ["ID", "Estados", "Fecha de apertura", "Prioridad", "Asignado a - Técnico"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        st.error(f"❌ Faltan columnas requeridas: {', '.join(missing)}")
+        st.info(f"Columnas encontradas: {', '.join(df.columns)}")
+        st.stop()
+    
+    # PROCESAR DATOS
+    df_procesado = procesar_datos(df)
+    
+    # FILTROS
+    st.subheader("🔍 Filtros")
+    solo_uno = st.checkbox("Consultar un solo técnico", value=False)
+    
+    col_tec = "Asignado a - Técnico"
+    tec_seleccionado = None
+    
+    if solo_uno:
+        tecnicos = sorted([t for t in df_procesado[col_tec].dropna().unique() if str(t).strip()])
+        if tecnicos:
+            tec_seleccionado = st.selectbox("👤 Seleccionar técnico", tecnicos)
+            df_filtrado = df_procesado[df_procesado[col_tec] == tec_seleccionado].copy()
+        else:
+            st.warning("No hay técnicos en los datos.")
+            df_filtrado = df_procesado.copy()
+    else:
+        df_filtrado = df_procesado.copy()
+    
+    # GENERAR RESUMEN
+    resumen = generar_resumen(df_filtrado, col_tec)
+    
+    # KPIs
+    st.subheader("📊 Métricas Generales")
+    c1, c2, c3, c4 = st.columns(4)
+    
+    total_asignados = int(resumen["Asignados"].sum())
+    total_resueltos = int(resumen["Resueltos"].sum())
+    total_tardios = int(resumen["Tardíos"].sum())
+    sla_promedio = resumen["SLA (%)"].mean() if not resumen.empty else 0.0
+    
+    c1.markdown(f"<div class='metric-card'><div class='metric-value'>{total_asignados}</div><div class='metric-label'>Casos Asignados</div></div>", unsafe_allow_html=True)
+    c2.markdown(f"<div class='metric-card'><div class='metric-value'>{total_resueltos}</div><div class='metric-label'>Casos Resueltos</div></div>", unsafe_allow_html=True)
+    c3.markdown(f"<div class='metric-card'><div class='metric-value'>{total_tardios}</div><div class='metric-label'>Casos Tardíos</div></div>", unsafe_allow_html=True)
+    c4.markdown(f"<div class='metric-card'><div class='metric-value'>{sla_promedio:.1f}%</div><div class='metric-label'>SLA Promedio</div></div>", unsafe_allow_html=True)
+    
+    # TABLA RESUMEN
+    st.subheader("📋 Resumen por Técnico")
+    st.dataframe(resumen, use_container_width=True, hide_index=True)
+    
+    # GRÁFICO BARRAS
+    st.subheader("📈 Cumplimiento SLA por Técnico")
+    if not resumen.empty:
+        fig = px.bar(
+            resumen.sort_values("SLA (%)", ascending=False),
+            x=col_tec, y="SLA (%)",
+            color="SLA (%)",
+            color_continuous_scale=["#EF476F", "#FFD166", "#06D6A0"],
+            text_auto=".1f"
+        )
+        fig.update_layout(template="plotly_dark", height=400)
+        st.plotly_chart(fig, use_container_width=True)
+    
+    # GRÁFICO PIE
+    st.subheader("🥧 Distribución de Casos Cerrados")
+    cerrados = df_filtrado[df_filtrado["Resuelto"] == True]
+    if not cerrados.empty:
+        cumplidos = (cerrados["Estado SLA"] == "✅ Cumplido").sum()
+        tardios = (cerrados["Estado SLA"] == "❌ Tardío").sum()
+        
+        fig_pie = px.pie(
+            pd.DataFrame({"Estado": ["Cumplido", "Tardío"], "Cantidad": [cumplidos, tardios]}),
+            names="Estado", values="Cantidad",
+            color="Estado",
+            color_discrete_map={"Cumplido": "#06D6A0", "Tardío": "#EF476F"}
+        )
+        fig_pie.update_layout(template="plotly_dark")
+        st.plotly_chart(fig_pie, use_container_width=True)
+    else:
+        st.info("No hay casos cerrados para mostrar.")
+    
+    # DETALLE DE CASOS
+    st.subheader("📝 Detalle de Casos")
+    cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
+                    "Fecha Apertura (Bogotá)", "Horas Hábiles", "SLA Límite (h)", "Estado SLA"]
+    st.dataframe(df_filtrado[cols_mostrar], use_container_width=True, hide_index=True)
+    
+    # DESCARGAR PDF
+    st.subheader("📥 Descargar Reporte")
+    pdf_data = generar_pdf(resumen, col_tec, tec_seleccionado)
+    timestamp = now_bogota.strftime("%Y%m%d_%H%M")
+    st.download_button(
+        label="📄 Descargar PDF",
+        data=pdf_data,
+        file_name=f"GIA_SLA_{timestamp}.pdf",
+        mime="application/pdf"
+    )
+
+# =========================
+# MODO TV
+# =========================
+else:
+    st.markdown("<h1 style='text-align:center;color:#3A86FF;'>📺 GIA | Panel de Rendimiento</h1>", unsafe_allow_html=True)
+    st.caption("IPS Goleman - Visualizacion en Tiempo Real")
+    st.markdown("<hr>", unsafe_allow_html=True)
+    
+    uploaded = st.file_uploader("📎 Subir reporte CSV", type=["csv"])
+    if not uploaded:
+        st.info("Esperando archivo...")
+        st.stop()
+    
+    df = pd.read_csv(uploaded, sep=";")
+    df_procesado = procesar_datos(df)
+    resumen = generar_resumen(df_procesado, "Asignado a - Técnico")
+    
+    fig = px.bar(
+        resumen.sort_values("SLA (%)", ascending=True),
+        x="SLA (%)", y="Asignado a - Técnico",
+        orientation="h",
+        color="SLA (%)",
+        color_continuous_scale=["#EF476F", "#FFD166", "#06D6A0"],
+        text_auto=".1f"
+    )
+    fig.update_layout(template="plotly_dark", height=600,
+                     title_font=dict(size=26, color="#3A86FF"),
+                     font=dict(size=16))
+    st.plotly_chart(fig, use_container_width=True)
+    
+    sla_global = resumen["SLA (%)"].mean()
+    hora = datetime.now(ZoneInfo("America/Bogota")).strftime("%H:%M:%S")
+    st.markdown(f"<h2 style='text-align:center;color:#06D6A0;'>SLA Global: {sla_global:.1f}%</h2>", unsafe_allow_html=True)
+    st.markdown(f"<p style='text-align:center;color:#AAA;'>Actualizado: {hora}</p>", unsafe_allow_html=True)
