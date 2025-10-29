@@ -23,6 +23,20 @@ try:
 except Exception:
     is_tv = False
 
+# Botón para cambiar de modo (antes de cualquier contenido)
+if not is_tv:
+    col_btn1, col_btn2, col_btn3 = st.columns([3, 1, 3])
+    with col_btn2:
+        if st.button("📺 Modo TV", use_container_width=True, type="primary"):
+            st.query_params["tv"] = "1"
+            st.rerun()
+else:
+    col_btn1, col_btn2, col_btn3 = st.columns([3, 1, 3])
+    with col_btn2:
+        if st.button("📊 Modo Normal", use_container_width=True, type="secondary"):
+            st.query_params.clear()
+            st.rerun()
+
 # Tema oscuro
 st.markdown("""
 <style>
