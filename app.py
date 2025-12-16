@@ -101,6 +101,45 @@ def to_timestamp(fecha_str, offset_hours=OFFSET_HOURS):
     except:
         return pd.NaT
 
+def find_col(df: pd.DataFrame, target: str):
+    target_norm = norm(target)
+    for c in df.columns:
+        if norm(c) == target_norm:
+            return c
+    for c in df.columns:
+        if target_norm in norm(c):
+            return c
+    return None
+
+def parse_duration_to_hours(val) -> float:
+    if pd.isna(val):
+        return None
+    try:
+        if isinstance(val, (int, float)):
+            return float(val) / 3600.0
+        s = str(val).strip().lower()
+        if 'd' in s and ':' in s:
+            try:
+                parts = s.split('d')
+                days = int(parts[0].strip())
+                hms = parts[1].strip()
+                h, m, sec = [int(x) for x in hms.split(':')]
+                return days*24 + h + m/60.0 + sec/3600.0
+            except:
+                pass
+        if ':' in s:
+            p = s.split(':')
+            if len(p) == 3:
+                h, m, sec = [int(x) for x in p]
+                return h + m/60.0 + sec/3600.0
+            elif len(p) == 2:
+                m, sec = [int(x) for x in p]
+                return m/60.0 + sec/3600.0
+        v = float(s)
+        return v / 3600.0
+    except:
+        return None
+
 def business_hours_between(start: datetime, end: datetime) -> float:
     if pd.isna(start) or pd.isna(end) or end <= start:
         return 0.0
@@ -161,31 +200,37 @@ def is_resolved(estado: str) -> bool:
     return "resuel" in estado_norm or "cerr" in estado_norm or "solucion" in estado_norm
 
 def procesar_datos(df: pd.DataFrame):
-    df["Fecha Apertura (Bogotá)"] = df["Fecha de apertura"].apply(to_timestamp)
+    col_fecha_cre = find_col(df, "Fecha de creación") or find_col(df, "Fecha de apertura")
+    col_fecha_cie = find_col(df, "Fecha de cierre") or find_col(df, "Última modificación")
+    col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
+
+    df["Fecha Apertura (Bogotá)"] = df[col_fecha_cre].apply(to_timestamp) if col_fecha_cre else pd.NaT
     df["Resuelto"] = df["Estados"].apply(is_resolved)
-    
+
     df["Fecha Cierre (Bogotá)"] = df.apply(
-        lambda r: to_timestamp(r["Última modificación"]) if r["Resuelto"] else pd.NaT,
+        lambda r: to_timestamp(r[col_fecha_cie]) if r["Resuelto"] and col_fecha_cie else pd.NaT,
         axis=1
     )
-    
+
     def calc_horas(row):
         if pd.isna(row["Fecha Apertura (Bogotá)"]):
             return 0.0
-        
-        if row["Resuelto"] and pd.notna(row["Fecha Cierre (Bogotá)"]):
-            end_date = row["Fecha Cierre (Bogotá)"]
-        else:
-            end_date = datetime.now()
-        
-        return business_hours_between(row["Fecha Apertura (Bogotá)"], end_date)
-    
+        if row["Resuelto"]:
+            if col_tiempo and pd.notna(row[col_tiempo]):
+                h = parse_duration_to_hours(row[col_tiempo])
+                if h is not None:
+                    return float(h)
+            if pd.notna(row["Fecha Cierre (Bogotá)"]):
+                return max(0.0, (row["Fecha Cierre (Bogotá)"] - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
+        end_date = datetime.now()
+        return max(0.0, (end_date - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
+
     df["Horas Hábiles"] = df.apply(calc_horas, axis=1)
     df["Minutos Hábiles"] = df["Horas Hábiles"] * 60
-    
+
     df["SLA Límite (h)"] = df["Prioridad"].apply(get_sla_hours)
     df["SLA Límite (min)"] = df["SLA Límite (h)"] * 60
-    
+
     def estado_sla(row):
         if not row["Resuelto"]:
             if row["Horas Hábiles"] > row["SLA Límite (h)"]:
@@ -195,10 +240,10 @@ def procesar_datos(df: pd.DataFrame):
             if row["Horas Hábiles"] <= row["SLA Límite (h)"]:
                 return "✅ Cumplido"
             return "❌ Tardío"
-    
+
     df["Estado SLA"] = df.apply(estado_sla, axis=1)
     df["Es Tardío"] = df["Estado SLA"].str.contains("Tardío")
-    
+
     return df
 
 def generar_resumen(df: pd.DataFrame, col_tecnico: str) -> pd.DataFrame:
@@ -427,7 +472,10 @@ def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_t
         Tardios=("Es Tardío", "sum")
     ).reset_index()
     
-    prioridad_stats["SLA (%)"] = ((prioridad_stats["Resueltos"] - prioridad_stats["Tardios"]) / prioridad_stats["Resueltos"] * 100).fillna(0)
+    prioridad_stats["SLA (%)"] = prioridad_stats.apply(
+        lambda r: ((r["Resueltos"] - r["Tardios"]) / r["Resueltos"] * 100) if r["Resueltos"] > 0 else 0.0,
+        axis=1
+    )
     prioridad_stats["% del Total"] = (prioridad_stats["Total"] / len(df_completo) * 100)
     
     prior_data = [["PRIORIDAD", "TOTAL", "% TOTAL", "RESUELTOS", "TARDIOS", "SLA %"]]
@@ -555,225 +603,6 @@ def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_t
     
     doc.build(story)
     return buf.getvalue()
-    buf = BytesIO()
-    fecha_bog = datetime.now(ZoneInfo("America/Bogota"))
-    fecha_str = fecha_bog.strftime("%d/%m/%Y - %H:%M")
-    
-    doc = SimpleDocTemplate(buf, pagesize=letter, 
-                           topMargin=0.5*inch, bottomMargin=0.5*inch,
-                           leftMargin=0.5*inch, rightMargin=0.5*inch)
-    
-    styles = getSampleStyleSheet()
-    
-    title_style = ParagraphStyle('Title', parent=styles['Title'],
-        fontSize=26, textColor=colors.HexColor("#3A86FF"),
-        alignment=TA_CENTER, spaceAfter=8, fontName='Helvetica-Bold')
-    
-    subtitle_style = ParagraphStyle('Subtitle', parent=styles['Normal'],
-        fontSize=11, textColor=colors.grey, alignment=TA_CENTER, spaceAfter=16)
-    
-    heading_style = ParagraphStyle('Heading', parent=styles['Heading2'],
-        fontSize=15, textColor=colors.HexColor("#3A86FF"),
-        spaceAfter=12, spaceBefore=18, fontName='Helvetica-Bold')
-    
-    normal_style = ParagraphStyle('Normal', parent=styles['Normal'],
-        fontSize=10, textColor=colors.black)
-    
-    story = []
-    
-    # PORTADA
-    story.append(Paragraph("GIA - INFORME DETALLADO DE SLA", title_style))
-    story.append(Paragraph(f"IPS Goleman | Sistema de Gestion de Incidencias", subtitle_style))
-    story.append(Spacer(1, 0.15*inch))
-    
-    # Info del reporte
-    info_data = [
-        ["Fecha de generacion:", fecha_str],
-        ["Zona horaria:", "Bogota, Colombia (UTC-5)"],
-        ["Desfase del servidor:", f"+{OFFSET_HOURS:.0f} horas"],
-        ["Total de casos:", str(len(df_completo))],
-    ]
-    if filtro_tec:
-        info_data.append(["Tecnico filtrado:", filtro_tec])
-    
-    info_table = Table(info_data, colWidths=[2*inch, 4*inch])
-    info_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (0,-1), colors.HexColor("#E8E8E8")),
-        ('ALIGN', (0,0), (0,-1), 'RIGHT'),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('TOPPADDING', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-    ]))
-    story.append(info_table)
-    story.append(Spacer(1, 0.25*inch))
-    
-    # METRICAS GLOBALES
-    story.append(Paragraph("METRICAS GENERALES", heading_style))
-    
-    total_asignados = int(resumen["Asignados"].sum())
-    total_resueltos = int(resumen["Resueltos"].sum())
-    total_tardios = int(resumen["Tardíos"].sum())
-    sla_promedio = resumen["SLA (%)"].mean() if not resumen.empty else 0.0
-    tasa_resol = (total_resueltos/total_asignados*100 if total_asignados > 0 else 0)
-    cumplidos = total_resueltos - total_tardios
-    
-    metricas_data = [
-        ["METRICA", "VALOR", "DETALLE"],
-        ["Total de casos asignados", str(total_asignados), "100%"],
-        ["Casos resueltos", str(total_resueltos), f"{tasa_resol:.1f}% del total"],
-        ["Casos cumplidos (dentro de SLA)", str(cumplidos), f"{(cumplidos/total_resueltos*100 if total_resueltos>0 else 0):.1f}% de resueltos"],
-        ["Casos tardios (fuera de SLA)", str(total_tardios), f"{(total_tardios/total_resueltos*100 if total_resueltos>0 else 0):.1f}% de resueltos"],
-        ["SLA Promedio Global", f"{sla_promedio:.2f}%", "Indicador principal"],
-    ]
-    
-    metricas_table = Table(metricas_data, colWidths=[2.5*inch, 1.5*inch, 2*inch])
-    
-    sla_color = colors.HexColor("#06D6A0") if sla_promedio >= 90 else colors.HexColor("#FFD166") if sla_promedio >= 70 else colors.HexColor("#EF476F")
-    
-    metricas_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 10),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('TOPPADDING', (0,0), (-1,-1), 10),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 10),
-        ('BACKGROUND', (0,5), (-1,5), sla_color),
-        ('TEXTCOLOR', (0,5), (-1,5), colors.white),
-        ('FONTNAME', (0,5), (-1,5), 'Helvetica-Bold'),
-    ]))
-    story.append(metricas_table)
-    story.append(Spacer(1, 0.25*inch))
-    
-    # RENDIMIENTO POR TECNICO
-    story.append(Paragraph("RENDIMIENTO POR TECNICO", heading_style))
-    
-    tecnico_data = [["#", "Tecnico", "Asignados", "Resueltos", "Tardios", "SLA %"]]
-    
-    for idx, (_, row) in enumerate(resumen.sort_values("SLA (%)", ascending=False).iterrows(), 1):
-        tecnico_data.append([
-            str(idx),
-            str(row[col_tec])[:28],
-            str(int(row["Asignados"])),
-            str(int(row["Resueltos"])),
-            str(int(row["Tardíos"])),
-            f"{row['SLA (%)']:.1f}%"
-        ])
-    
-    tecnico_table = Table(tecnico_data, colWidths=[0.4*inch, 2*inch, 0.9*inch, 0.9*inch, 0.8*inch, 0.9*inch])
-    
-    tec_style = [
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 9),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('TOPPADDING', (0,0), (-1,-1), 8),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 8),
-    ]
-    
-    # Colorear filas según SLA
-    for idx, (_, row) in enumerate(resumen.sort_values("SLA (%)", ascending=False).iterrows(), 1):
-        sla_val = row["SLA (%)"]
-        if sla_val >= 90:
-            bg_color = colors.HexColor("#E8F8F5")
-        elif sla_val >= 70:
-            bg_color = colors.HexColor("#FFF9E6")
-        else:
-            bg_color = colors.HexColor("#FADBD8")
-        tec_style.append(('BACKGROUND', (0,idx), (-1,idx), bg_color))
-    
-    tecnico_table.setStyle(TableStyle(tec_style))
-    story.append(tecnico_table)
-    
-    # NUEVA PAGINA: DETALLE DE CASOS
-    story.append(PageBreak())
-    story.append(Paragraph("DETALLE COMPLETO DE CASOS", heading_style))
-    
-    # Estadísticas de prioridades
-    prioridades_count = df_completo.groupby("Prioridad").size().reset_index(name='Cantidad')
-    story.append(Paragraph(f"<b>Distribucion por prioridad:</b> {len(df_completo)} casos totales", normal_style))
-    story.append(Spacer(1, 0.1*inch))
-    
-    prior_data = [["Prioridad", "Cantidad", "% del Total"]]
-    for _, row in prioridades_count.iterrows():
-        pct = (row['Cantidad'] / len(df_completo)) * 100
-        prior_data.append([str(row['Prioridad']), str(row['Cantidad']), f"{pct:.1f}%"])
-    
-    prior_table = Table(prior_data, colWidths=[2*inch, 1.5*inch, 1.5*inch])
-    prior_table.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#5FA8FF")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (0,-1), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 9),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
-        ('TOPPADDING', (0,0), (-1,-1), 6),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 6),
-    ]))
-    story.append(prior_table)
-    story.append(Spacer(1, 0.2*inch))
-    
-    # Casos detallados (limitado a 100 para no saturar el PDF)
-    story.append(Paragraph(f"LISTADO DE CASOS (Mostrando {min(len(df_completo), 100)} de {len(df_completo)})", heading_style))
-    story.append(Spacer(1, 0.1*inch))
-    
-    casos_data = [["ID", "Titulo", "Tecnico", "Prior.", "Estado", "Min.", "Lim.", "SLA"]]
-    
-    df_pdf = df_completo.head(100)
-    
-    for _, row in df_pdf.iterrows():
-        titulo = str(row["Título"])[:22] + "..." if len(str(row["Título"])) > 22 else str(row["Título"])
-        tecnico = str(row[col_tec])[:15] + "..." if len(str(row[col_tec])) > 15 else str(row[col_tec])
-        prior = str(row["Prioridad"])[:6]
-        estado = "OK" if "Cumplido" in str(row["Estado SLA"]) else "TARDE" if "Tardío" in str(row["Estado SLA"]) else "..."
-        
-        casos_data.append([
-            str(row["ID"]),
-            titulo,
-            tecnico,
-            prior,
-            str(row["Estados"])[:8],
-            f"{row['Minutos Hábiles']:.0f}",
-            f"{row['SLA Límite (min)']:.0f}",
-            estado
-        ])
-    
-    casos_table = Table(casos_data, colWidths=[0.35*inch, 1.3*inch, 1.1*inch, 0.5*inch, 0.6*inch, 0.4*inch, 0.4*inch, 0.5*inch])
-    
-    casos_style = [
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.white),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('FONTNAME', (0,0), (-1,0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0,0), (-1,-1), 7),
-        ('GRID', (0,0), (-1,-1), 0.3, colors.grey),
-        ('TOPPADDING', (0,0), (-1,-1), 4),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 4),
-    ]
-    
-    # Colorear casos tardíos
-    for idx, (_, row) in enumerate(df_pdf.iterrows(), start=1):
-        if "Tardío" in str(row["Estado SLA"]):
-            casos_style.append(('BACKGROUND', (0,idx), (-1,idx), colors.HexColor("#EF476F")))
-            casos_style.append(('TEXTCOLOR', (0,idx), (-1,idx), colors.white))
-    
-    casos_table.setStyle(TableStyle(casos_style))
-    story.append(casos_table)
-    
-    # FOOTER
-    story.append(Spacer(1, 0.3*inch))
-    footer_style = ParagraphStyle('footer', parent=styles['Normal'], 
-                                  fontSize=8, textColor=colors.grey, alignment=TA_CENTER)
-    story.append(Paragraph(f"<i>Informe generado automaticamente por GIA - Sistema de Gestion SLA | {fecha_str}</i>", footer_style))
-    story.append(Paragraph("<i>Este documento contiene informacion confidencial de IPS Goleman</i>", footer_style))
-    
-    doc.build(story)
-    return buf.getvalue()
 
 # ==================
 # MODO NORMAL
@@ -831,8 +660,14 @@ if not is_tv:
             st.error(f"Error al leer el archivo: {str(e)}")
             st.stop()
     
-    required_cols = ["ID", "Estados", "Fecha de apertura", "Prioridad", "Asignado a - Técnico"]
+    col_fecha_cre = find_col(df, "Fecha de creación") or find_col(df, "Fecha de apertura")
+    col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
+    required_cols = ["ID", "Estados", "Prioridad", "Asignado a - Técnico"]
     missing = [c for c in required_cols if c not in df.columns]
+    if not col_fecha_cre:
+        missing.append("Fecha de creación/Fecha de apertura")
+    if not col_tiempo:
+        missing.append("Tiempo en resolver")
     if missing:
         st.error(f"❌ Faltan columnas requeridas: {', '.join(missing)}")
         st.stop()
