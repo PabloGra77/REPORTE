@@ -744,9 +744,13 @@ if not is_tv:
     df_display["Fecha Cierre (Bogotá)"] = df_display["Fecha Cierre (Bogotá)"].apply(
         lambda x: "Sin cerrar" if pd.isna(x) else x
     )
+    dias_semana = ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"]
+    df_display["Cierre (día y hora)"] = df_filtrado["Fecha Cierre (Bogotá)"].apply(
+        lambda x: "Sin cerrar" if pd.isna(x) else f"{dias_semana[x.weekday()]} {x.strftime('%d/%m/%Y %H:%M')}"
+    )
     
     cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
-                    "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)",
+                    "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)", "Cierre (día y hora)",
                     "Minutos Hábiles", "SLA Límite (min)", "Estado SLA"]
     
     def highlight_tardios(row):
