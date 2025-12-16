@@ -199,16 +199,16 @@ def is_resolved(estado: str) -> bool:
     estado_norm = norm(estado)
     return "resuel" in estado_norm or "cerr" in estado_norm or "solucion" in estado_norm
 
-def procesar_datos(df: pd.DataFrame):
+def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     col_fecha_cre = find_col(df, "Fecha de creación") or find_col(df, "Fecha de apertura")
     col_fecha_cie = find_col(df, "Fecha de cierre") or find_col(df, "Última modificación")
     col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
 
-    df["Fecha Apertura (Bogotá)"] = df[col_fecha_cre].apply(to_timestamp) if col_fecha_cre else pd.NaT
+    df["Fecha Apertura (Bogotá)"] = df[col_fecha_cre].apply(lambda s: to_timestamp(s, offset_hours)) if col_fecha_cre else pd.NaT
     df["Resuelto"] = df["Estados"].apply(is_resolved)
 
     df["Fecha Cierre (Bogotá)"] = df.apply(
-        lambda r: to_timestamp(r[col_fecha_cie]) if r["Resuelto"] and col_fecha_cie else pd.NaT,
+        lambda r: to_timestamp(r[col_fecha_cie], offset_hours) if r["Resuelto"] and col_fecha_cie else pd.NaT,
         axis=1
     )
 
@@ -222,7 +222,7 @@ def procesar_datos(df: pd.DataFrame):
                     return float(h)
             if pd.notna(row["Fecha Cierre (Bogotá)"]):
                 return max(0.0, (row["Fecha Cierre (Bogotá)"] - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
-        end_date = datetime.now()
+        end_date = datetime.now(ZoneInfo("America/Bogota")).replace(tzinfo=None)
         return max(0.0, (end_date - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
 
     df["Horas Hábiles"] = df.apply(calc_horas, axis=1)
@@ -263,7 +263,7 @@ def generar_resumen(df: pd.DataFrame, col_tecnico: str) -> pd.DataFrame:
     
     return resumen
 
-def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_tec: str, filtro_tec: str = None):
+def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_tec: str, filtro_tec: str = None, offset_hours: float = OFFSET_HOURS):
     buf = BytesIO()
     fecha_bog = datetime.now(ZoneInfo("America/Bogota"))
     fecha_str = fecha_bog.strftime("%d/%m/%Y - %H:%M")
@@ -306,7 +306,7 @@ def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_t
     info_data = [
         ["Fecha y hora de generacion:", fecha_str],
         ["Zona horaria:", "Bogota, Colombia (COT, UTC-5)"],
-        ["Desfase del servidor:", f"+{OFFSET_HOURS:.0f} horas"],
+        ["Desfase del servidor:", f"+{offset_hours:.0f} horas"],
         ["Total de registros procesados:", str(len(df_completo))],
         ["Periodo analizado:", "Completo"],
     ]
@@ -614,7 +614,8 @@ if not is_tv:
     
     st.subheader("🕐 Sincronizacion Horaria")
     now_bogota = datetime.now(ZoneInfo("America/Bogota"))
-    now_servidor = now_bogota + timedelta(hours=OFFSET_HOURS)
+    offset_ui = st.number_input("Desfase servidor vs Bogotá (horas)", min_value=-12.0, max_value=12.0, step=0.5, value=float(OFFSET_HOURS))
+    now_servidor = now_bogota + timedelta(hours=offset_ui)
     
     col1, col2, col3 = st.columns([2, 2, 1])
     with col1:
@@ -639,7 +640,7 @@ if not is_tv:
         st.markdown(f"""
         <div class='clock-card'>
             <div class='clock-label'>DESFASE</div>
-            <div class='clock-value'>+{OFFSET_HOURS:.0f}h</div>
+            <div class='clock-value'>+{offset_ui:.0f}h</div>
         </div>
         """, unsafe_allow_html=True)
     
@@ -672,7 +673,7 @@ if not is_tv:
         st.error(f"❌ Faltan columnas requeridas: {', '.join(missing)}")
         st.stop()
     
-    df_procesado = procesar_datos(df)
+    df_procesado = procesar_datos(df, offset_ui)
     
     st.subheader("🔍 Filtros")
     solo_uno = st.checkbox("Consultar un solo tecnico", value=False)
@@ -771,7 +772,7 @@ if not is_tv:
     st.subheader("📥 Descargar Reporte PDF")
     
     try:
-        pdf_data = generar_pdf_mejorado(resumen, df_filtrado, col_tec, tec_seleccionado)
+        pdf_data = generar_pdf_mejorado(resumen, df_filtrado, col_tec, tec_seleccionado, offset_ui)
         timestamp = now_bogota.strftime("%Y%m%d_%H%M")
         st.download_button(
             label="📄 Descargar Reporte Completo en PDF",
@@ -793,7 +794,7 @@ else:
         st.stop()
     
     df = pd.read_csv(uploaded, sep=";")
-    df_procesado = procesar_datos(df)
+    df_procesado = procesar_datos(df, OFFSET_HOURS)
     resumen = generar_resumen(df_procesado, "Asignado a - Técnico")
     
     if resumen.empty:
