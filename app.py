@@ -754,11 +754,15 @@ if not is_tv:
             return ['background-color: #8B0000; color: white; font-weight: bold'] * len(row)
         return [''] * len(row)
     
-    st.dataframe(
-        df_display[cols_mostrar].style.apply(highlight_tardios, axis=1),
-        use_container_width=True, 
-        hide_index=True
-    )
+    fmt_fecha = lambda x: x.strftime("%d/%m/%Y %H:%M") if not pd.isna(x) else "-"
+    format_map = {
+        "Minutos Hábiles": "{:,.0f}",
+        "SLA Límite (min)": "{:,.0f}",
+        "Fecha Apertura (Bogotá)": fmt_fecha,
+        "Fecha Cierre (Bogotá)": (lambda x: x if isinstance(x, str) else (x.strftime("%d/%m/%Y %H:%M") if not pd.isna(x) else "-")),
+    }
+    styled = df_display[cols_mostrar].style.format(format_map, na_rep="-").apply(highlight_tardios, axis=1)
+    st.dataframe(styled, use_container_width=True, hide_index=True)
     
     st.markdown("<hr>", unsafe_allow_html=True)
     
