@@ -751,7 +751,7 @@ if not is_tv:
     
     cols_mostrar = ["ID", "Título", "Estados", col_tec, "Prioridad", 
                     "Fecha Apertura (Bogotá)", "Fecha Cierre (Bogotá)", "Cierre (día y hora)",
-                    "Minutos Hábiles", "SLA Límite (min)", "Estado SLA"]
+                    "Estado SLA"]
     
     def highlight_tardios(row):
         if "Tardío" in str(row["Estado SLA"]):
@@ -760,8 +760,6 @@ if not is_tv:
     
     fmt_fecha = lambda x: x.strftime("%d/%m/%Y %H:%M") if not pd.isna(x) else "-"
     format_map = {
-        "Minutos Hábiles": "{:,.0f}",
-        "SLA Límite (min)": "{:,.0f}",
         "Fecha Apertura (Bogotá)": fmt_fecha,
         "Fecha Cierre (Bogotá)": (lambda x: x if isinstance(x, str) else (x.strftime("%d/%m/%Y %H:%M") if not pd.isna(x) else "-")),
     }
