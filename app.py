@@ -240,7 +240,7 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     # En este reporte, 'Tiempo en resolver' contiene la FECHA LÍMITE (Vencimiento), no la duración
     col_fecha_venc = find_col(df, "Fecha de vencimiento") or find_col(df, "Tiempo límite") or find_col(df, "Due date") or find_col(df, "Tiempo en resolver") or find_col(df, "tiempo en resolver")
     
-    col_excedido = find_col(df, "Tarde") or find_col(df, "Tiempo de solución excedido") or find_col(df, "TTR excedido") or find_col(df, "SLA excedido")
+    col_excedido = find_col(df, "Tarde") or find_col(df, "Tiempo de solución excedido") or find_col(df, "TTR excedido") or find_col(df, "SLA excedido") or find_col(df, "Excedido")
     
     # Columna de duración real (si existe, para cálculos de horas)
     col_duracion_real = find_col(df, "Duración real") or find_col(df, "Tiempo real")
@@ -305,11 +305,11 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
                 if now_bog > limit:
                     is_late = True
         
-        # 2. Fallback: Comparar Horas vs SLA Límite
-        # Reactivado usando Horas Hábiles calculadas correctamente
+        # 2. Fallback: DESACTIVADO
+        # Si GLPI no indica fecha de vencimiento ni marca "Excedido", asumimos que está en tiempo.
+        # Esto reduce falsos positivos causados por SLAs hardcodeados que no coinciden con la configuración real.
         else:
-             if row["Horas Hábiles"] > row["SLA Límite (h)"]:
-                 is_late = True
+             is_late = False
 
         if not row["Resuelto"]:
             return "⏰ Abierto (Tardío)" if is_late else "🟢 Abierto"
