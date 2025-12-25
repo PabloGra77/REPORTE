@@ -201,7 +201,8 @@ def is_resolved(estado: str) -> bool:
 
 def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     col_fecha_cre = find_col(df, "Fecha de creación") or find_col(df, "Fecha de apertura")
-    col_fecha_cie = find_col(df, "Fecha de cierre") or find_col(df, "Última modificación")
+    # Prioridad: Fecha de Solución > Fecha de Cierre > Última modificación
+    col_fecha_cie = find_col(df, "Fecha de solución") or find_col(df, "Solution date") or find_col(df, "Fecha de cierre") or find_col(df, "Closing date") or find_col(df, "Última modificación")
     col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
     col_fecha_venc = find_col(df, "Fecha de vencimiento") or find_col(df, "Tiempo límite") or find_col(df, "Due date")
     col_excedido = find_col(df, "Tiempo de solución excedido") or find_col(df, "TTR excedido") or find_col(df, "SLA excedido")
@@ -220,12 +221,14 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
         if pd.isna(row["Fecha Apertura (Bogotá)"]):
             return 0.0
         if row["Resuelto"]:
+            # 1. Prioridad: Usar 'Tiempo en resolver' si existe (es el cálculo oficial de GLPI)
             if col_tiempo and pd.notna(row[col_tiempo]):
                 h = parse_duration_to_hours(row[col_tiempo])
                 if h is not None:
                     return float(h)
+            
+            # 2. Fallback: Calcular horas hábiles entre Apertura y Solución (o Cierre)
             if pd.notna(row["Fecha Cierre (Bogotá)"]):
-                # Usar cálculo de horas hábiles para descontar noches y fines de semana
                 return business_hours_between(row["Fecha Apertura (Bogotá)"], row["Fecha Cierre (Bogotá)"])
         
         # Para casos abiertos
