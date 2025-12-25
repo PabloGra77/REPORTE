@@ -769,6 +769,51 @@ if not is_tv:
 # MODO TV
 # ==================
 else:
+    # Botón flotante para pantalla completa
+    st.markdown("""
+    <style>
+    .fullscreen-btn {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        z-index: 999999;
+        background-color: rgba(58, 134, 255, 0.2);
+        border: 1px solid rgba(58, 134, 255, 0.4);
+        color: rgba(255,255,255,0.6);
+        padding: 10px;
+        border-radius: 50%;
+        cursor: pointer;
+        width: 50px;
+        height: 50px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 24px;
+        transition: all 0.3s;
+        backdrop-filter: blur(5px);
+    }
+    .fullscreen-btn:hover {
+        background-color: rgba(58, 134, 255, 0.8);
+        color: white;
+        transform: scale(1.1);
+    }
+    </style>
+    
+    <button onclick="toggleFullScreen()" class="fullscreen-btn" title="Pantalla Completa">⛶</button>
+    
+    <script>
+    function toggleFullScreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen();
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+        }
+      }
+    }
+    </script>
+    """, unsafe_allow_html=True)
+
     uploaded = st.file_uploader("📎 CSV", type=["csv"], key="tv_upload", label_visibility="collapsed")
     if not uploaded:
         st.markdown("<div style='text-align:center;padding:100px;'><h1 style='color:#3A86FF;'>📺 PANEL TV</h1><p style='color:#AAA;'>Esperando archivo...</p></div>", unsafe_allow_html=True)
