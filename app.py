@@ -225,13 +225,17 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
                 if h is not None:
                     return float(h)
             if pd.notna(row["Fecha Cierre (Bogotá)"]):
-                # Fallback: Usar diferencia simple si no hay tiempo explícito
-                # Podríamos usar business_hours_between si se requiere mayor precisión
-                return max(0.0, (row["Fecha Cierre (Bogotá)"] - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
+                # Usar cálculo de horas hábiles para descontar noches y fines de semana
+                return business_hours_between(row["Fecha Apertura (Bogotá)"], row["Fecha Cierre (Bogotá)"])
         
         # Para casos abiertos
         end_date = datetime.now(ZoneInfo("America/Bogota")).replace(tzinfo=None)
-        return max(0.0, (end_date - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
+        # Asegurarse que start también sea naive para evitar error de comparación
+        start_date = row["Fecha Apertura (Bogotá)"]
+        if pd.notna(start_date) and start_date.tzinfo is not None:
+            start_date = start_date.replace(tzinfo=None)
+            
+        return business_hours_between(start_date, end_date)
 
     df["Horas Hábiles"] = df.apply(calc_horas, axis=1)
     df["Minutos Hábiles"] = df["Horas Hábiles"] * 60
@@ -262,14 +266,10 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
                     is_late = True
         
         # 2. Fallback: Comparar Horas vs SLA Límite
-        # IMPORTANTE: Solo usamos el fallback si NO hay fecha de vencimiento y NO hay columna de excedido.
-        # Esto evita marcar como tardíos casos que GLPI no considera tardíos (por no tener SLA asignado).
-        # Para ser conservadores y coincidir con GLPI, si no hay vencimiento, asumimos NO TARDÍO
-        # a menos que las horas sean excesivas (> 1000h) o se quiera forzar el control interno.
-        # Por ahora, desactivamos el fallback agresivo para coincidir con el reporte del usuario.
+        # Reactivado usando Horas Hábiles calculadas correctamente
         else:
-             # is_late = row["Horas Hábiles"] > row["SLA Límite (h)"] # DESACTIVADO PARA COINCIDIR CON GLPI
-             is_late = False
+             if row["Horas Hábiles"] > row["SLA Límite (h)"]:
+                 is_late = True
 
         if not row["Resuelto"]:
             return "⏰ Abierto (Tardío)" if is_late else "🟢 Abierto"
