@@ -204,6 +204,7 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     col_fecha_cie = find_col(df, "Fecha de cierre") or find_col(df, "Última modificación")
     col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
     col_fecha_venc = find_col(df, "Fecha de vencimiento") or find_col(df, "Tiempo límite") or find_col(df, "Due date")
+    col_excedido = find_col(df, "Tiempo de solución excedido") or find_col(df, "TTR excedido") or find_col(df, "SLA excedido")
 
     df["Fecha Apertura (Bogotá)"] = df[col_fecha_cre].apply(lambda s: to_timestamp(s, offset_hours)) if col_fecha_cre else pd.NaT
     df["Resuelto"] = df["Estados"].apply(is_resolved)
@@ -241,8 +242,14 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     def estado_sla(row):
         is_late = False
         
-        # 1. Prioridad: Usar Fecha de Vencimiento si existe (Lógica GLPI)
-        if pd.notna(row.get("Fecha Vencimiento (Bogotá)")):
+        # 0. Prioridad ABSOLUTA: Si existe columna explícita de GLPI "Excedido"
+        if col_excedido and pd.notna(row[col_excedido]):
+            val = str(row[col_excedido]).lower().strip()
+            if val in ["si", "yes", "1", "true", "excedido"]:
+                is_late = True
+        
+        # 1. Si no hay columna explícita, usar Fecha de Vencimiento (Lógica GLPI)
+        elif pd.notna(row.get("Fecha Vencimiento (Bogotá)")):
             limit = row["Fecha Vencimiento (Bogotá)"]
             if row["Resuelto"]:
                 # Si se cerró después de la fecha límite
@@ -253,10 +260,16 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
                 now_bog = datetime.now(ZoneInfo("America/Bogota")).replace(tzinfo=None)
                 if now_bog > limit:
                     is_late = True
+        
+        # 2. Fallback: Comparar Horas vs SLA Límite
+        # IMPORTANTE: Solo usamos el fallback si NO hay fecha de vencimiento y NO hay columna de excedido.
+        # Esto evita marcar como tardíos casos que GLPI no considera tardíos (por no tener SLA asignado).
+        # Para ser conservadores y coincidir con GLPI, si no hay vencimiento, asumimos NO TARDÍO
+        # a menos que las horas sean excesivas (> 1000h) o se quiera forzar el control interno.
+        # Por ahora, desactivamos el fallback agresivo para coincidir con el reporte del usuario.
         else:
-            # 2. Fallback: Comparar Horas vs SLA Límite
-            if row["Horas Hábiles"] > row["SLA Límite (h)"]:
-                is_late = True
+             # is_late = row["Horas Hábiles"] > row["SLA Límite (h)"] # DESACTIVADO PARA COINCIDIR CON GLPI
+             is_late = False
 
         if not row["Resuelto"]:
             return "⏰ Abierto (Tardío)" if is_late else "🟢 Abierto"
@@ -732,7 +745,18 @@ if not is_tv:
     c4.markdown(f"<div class='metric-card'><div class='metric-value'>{sla_promedio:.1f}%</div><div class='metric-label'>SLA Promedio</div></div>", unsafe_allow_html=True)
     
     st.subheader("📋 Resumen por Tecnico")
-    st.dataframe(resumen, use_container_width=True, hide_index=True)
+    
+    st.dataframe(
+        resumen,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Asignados": st.column_config.NumberColumn("Asignados", format="%d"),
+            "Resueltos": st.column_config.NumberColumn("Resueltos", format="%d"),
+            "Tardíos": st.column_config.NumberColumn("Tardíos", format="%d"),
+            "SLA (%)": st.column_config.NumberColumn("SLA (%)", format="%.1f%%"),
+        }
+    )
     
     st.subheader("📈 Cumplimiento SLA por Tecnico")
     if not resumen.empty:
