@@ -203,6 +203,7 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     col_fecha_cre = find_col(df, "Fecha de creación") or find_col(df, "Fecha de apertura")
     col_fecha_cie = find_col(df, "Fecha de cierre") or find_col(df, "Última modificación")
     col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
+    col_fecha_venc = find_col(df, "Fecha de vencimiento") or find_col(df, "Tiempo límite") or find_col(df, "Due date")
 
     df["Fecha Apertura (Bogotá)"] = df[col_fecha_cre].apply(lambda s: to_timestamp(s, offset_hours)) if col_fecha_cre else pd.NaT
     df["Resuelto"] = df["Estados"].apply(is_resolved)
@@ -211,6 +212,8 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
         lambda r: to_timestamp(r[col_fecha_cie], offset_hours) if r["Resuelto"] and col_fecha_cie else pd.NaT,
         axis=1
     )
+    
+    df["Fecha Vencimiento (Bogotá)"] = df[col_fecha_venc].apply(lambda s: to_timestamp(s, offset_hours)) if col_fecha_venc else pd.NaT
 
     def calc_horas(row):
         if pd.isna(row["Fecha Apertura (Bogotá)"]):
@@ -221,7 +224,11 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
                 if h is not None:
                     return float(h)
             if pd.notna(row["Fecha Cierre (Bogotá)"]):
+                # Fallback: Usar diferencia simple si no hay tiempo explícito
+                # Podríamos usar business_hours_between si se requiere mayor precisión
                 return max(0.0, (row["Fecha Cierre (Bogotá)"] - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
+        
+        # Para casos abiertos
         end_date = datetime.now(ZoneInfo("America/Bogota")).replace(tzinfo=None)
         return max(0.0, (end_date - row["Fecha Apertura (Bogotá)"]).total_seconds() / 3600.0)
 
@@ -232,17 +239,35 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     df["SLA Límite (min)"] = df["SLA Límite (h)"] * 60
 
     def estado_sla(row):
-        if not row["Resuelto"]:
-            if row["Horas Hábiles"] > row["SLA Límite (h)"]:
-                return "⏰ Abierto (Tardío)"
-            return "🟢 Abierto"
+        is_late = False
+        
+        # 1. Prioridad: Usar Fecha de Vencimiento si existe (Lógica GLPI)
+        if pd.notna(row.get("Fecha Vencimiento (Bogotá)")):
+            limit = row["Fecha Vencimiento (Bogotá)"]
+            if row["Resuelto"]:
+                # Si se cerró después de la fecha límite
+                if pd.notna(row["Fecha Cierre (Bogotá)"]) and row["Fecha Cierre (Bogotá)"] > limit:
+                    is_late = True
+            else:
+                # Si sigue abierto y ya pasó la fecha límite
+                now_bog = datetime.now(ZoneInfo("America/Bogota")).replace(tzinfo=None)
+                if now_bog > limit:
+                    is_late = True
         else:
-            if row["Horas Hábiles"] <= row["SLA Límite (h)"]:
-                return "✅ Cumplido"
-            return "❌ Tardío"
+            # 2. Fallback: Comparar Horas vs SLA Límite
+            if row["Horas Hábiles"] > row["SLA Límite (h)"]:
+                is_late = True
+
+        if not row["Resuelto"]:
+            return "⏰ Abierto (Tardío)" if is_late else "🟢 Abierto"
+        else:
+            return "❌ Tardío" if is_late else "✅ Cumplido"
 
     df["Estado SLA"] = df.apply(estado_sla, axis=1)
     df["Es Tardío"] = df["Estado SLA"].str.contains("Tardío")
+    
+    # Marcador específico para tardíos resueltos (para concordar con GLPI)
+    df["Es Tardío Resuelto"] = df.apply(lambda r: r["Resuelto"] and r["Es Tardío"], axis=1)
 
     return df
 
@@ -250,12 +275,13 @@ def generar_resumen(df: pd.DataFrame, col_tecnico: str) -> pd.DataFrame:
     resumen = df.groupby(col_tecnico).agg(
         Asignados=("ID", "count"),
         Resueltos=("Resuelto", "sum"),
-        Tardíos=("Es Tardío", "sum")
+        Tardíos=("Es Tardío Resuelto", "sum") # Contamos solo los resueltos tardíos para el reporte
     ).reset_index()
     
     def calc_sla_pct(row):
         if row["Resueltos"] == 0:
             return 0.0
+        # SLA basado en resueltos: (Resueltos - Tardíos Resueltos) / Resueltos
         cumplidos = row["Resueltos"] - row["Tardíos"]
         return (cumplidos / row["Resueltos"]) * 100
     
@@ -469,7 +495,7 @@ def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_t
     prioridad_stats = df_completo.groupby("Prioridad").agg(
         Total=("ID", "count"),
         Resueltos=("Resuelto", "sum"),
-        Tardios=("Es Tardío", "sum")
+        Tardios=("Es Tardío Resuelto", "sum")
     ).reset_index()
     
     prioridad_stats["SLA (%)"] = prioridad_stats.apply(
@@ -538,7 +564,7 @@ def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_t
     story.append(Paragraph(f"Total de casos en el reporte: {len(df_completo)} | Mostrando: {min(len(df_completo), 150)}", normal_style))
     story.append(Spacer(1, 0.1*inch))
     
-    casos_data = [["ID", "TITULO", "TECNICO", "PRIOR.", "ESTADO", "MIN.", "LIM.", "SLA"]]
+    casos_data = [["ID", "TITULO", "TECNICO", "PRIOR.", "ESTADO", "SLA"]]
     
     df_pdf = df_completo.sort_values("Es Tardío", ascending=False).head(150)
     
@@ -561,12 +587,10 @@ def generar_pdf_mejorado(resumen: pd.DataFrame, df_completo: pd.DataFrame, col_t
             tecnico,
             prior,
             estado_corto,
-            f"{row['Minutos Hábiles']:.0f}",
-            f"{row['SLA Límite (min)']:.0f}",
             sla_status
         ])
     
-    casos_table = Table(casos_data, colWidths=[0.35*inch, 1.5*inch, 1.2*inch, 0.6*inch, 0.7*inch, 0.4*inch, 0.4*inch, 0.6*inch])
+    casos_table = Table(casos_data, colWidths=[0.4*inch, 2.1*inch, 1.4*inch, 0.7*inch, 0.8*inch, 0.6*inch])
     
     casos_style = [
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#3A86FF")),
