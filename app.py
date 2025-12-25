@@ -807,6 +807,8 @@ else:
         with col_conf2:
             st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True) # Espaciador
             if st.button("▶ INICIAR TV", type="primary", use_container_width=True):
+                # Guardar selección en variable persistente antes de cambiar de fase
+                st.session_state.tv_excluidos_persistente = st.session_state.get("tv_excluded_tecnicos", [])
                 st.session_state.tv_playing = True
                 st.rerun()
                 
@@ -873,7 +875,7 @@ else:
         """, unsafe_allow_html=True)
 
         # Filtrar datos según exclusiones
-        excluidos_lista = st.session_state.get("tv_excluded_tecnicos", [])
+        excluidos_lista = st.session_state.get("tv_excluidos_persistente", [])
         resumen = resumen_raw[~resumen_raw["Asignado a - Técnico"].isin(excluidos_lista)]
         
         if resumen.empty:
