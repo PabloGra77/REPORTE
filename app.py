@@ -769,48 +769,57 @@ if not is_tv:
 # MODO TV
 # ==================
 else:
-    # Botón flotante para pantalla completa
+    # Botón flotante para pantalla completa (Versión Mejorada JS)
     st.markdown("""
     <style>
     .fullscreen-btn {
         position: fixed;
         bottom: 20px;
         right: 20px;
-        z-index: 999999;
-        background-color: rgba(58, 134, 255, 0.2);
-        border: 1px solid rgba(58, 134, 255, 0.4);
-        color: rgba(255,255,255,0.6);
-        padding: 10px;
+        z-index: 2147483647; /* Max Z-Index */
+        background-color: rgba(58, 134, 255, 0.3);
+        border: 2px solid #3A86FF;
+        color: white;
+        padding: 12px;
         border-radius: 50%;
         cursor: pointer;
-        width: 50px;
-        height: 50px;
+        width: 60px;
+        height: 60px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 24px;
-        transition: all 0.3s;
-        backdrop-filter: blur(5px);
+        font-size: 30px;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(4px);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
     }
     .fullscreen-btn:hover {
-        background-color: rgba(58, 134, 255, 0.8);
-        color: white;
+        background-color: #3A86FF;
         transform: scale(1.1);
+        box-shadow: 0 0 20px rgba(58, 134, 255, 0.6);
     }
     </style>
     
     <button onclick="toggleFullScreen()" class="fullscreen-btn" title="Pantalla Completa">⛶</button>
     
     <script>
-    function toggleFullScreen() {
-      if (!document.fullscreenElement) {
-        document.documentElement.requestFullscreen();
-      } else {
-        if (document.exitFullscreen) {
-          document.exitFullscreen();
+    window.toggleFullScreen = function() {
+        var doc = window.document;
+        var docEl = doc.documentElement;
+
+        var requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
+        var cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+
+        if(!doc.fullscreenElement && !doc.mozFullScreenElement && !doc.webkitFullscreenElement && !doc.msFullscreenElement) {
+            if (requestFullScreen) {
+                requestFullScreen.call(docEl);
+            }
+        } else {
+            if (cancelFullScreen) {
+                cancelFullScreen.call(doc);
+            }
         }
-      }
-    }
+    };
     </script>
     """, unsafe_allow_html=True)
 
