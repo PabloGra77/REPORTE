@@ -118,6 +118,39 @@ def parse_duration_to_hours(val) -> float:
         if isinstance(val, (int, float)):
             return float(val) / 3600.0
         s = str(val).strip().lower()
+        
+        # Formato: "1 hora 30 minutos" o "3h 15m"
+        if "h" in s or "m" in s or "s" in s:
+            total_hours = 0.0
+            s = s.replace("horas", "h").replace("hora", "h")
+            s = s.replace("minutos", "m").replace("minuto", "m")
+            s = s.replace("segundos", "s").replace("segundo", "s")
+            
+            # Extraer horas
+            if "h" in s:
+                parts = s.split("h")
+                try:
+                    total_hours += float(parts[0].strip())
+                    s = parts[1]
+                except:
+                    pass
+            # Extraer minutos
+            if "m" in s:
+                parts = s.split("m")
+                try:
+                    total_hours += float(parts[0].strip()) / 60.0
+                    s = parts[1]
+                except:
+                    pass
+            # Extraer segundos
+            if "s" in s:
+                parts = s.split("s")
+                try:
+                    total_hours += float(parts[0].strip()) / 3600.0
+                except:
+                    pass
+            return total_hours
+
         if 'd' in s and ':' in s:
             try:
                 parts = s.split('d')
@@ -205,7 +238,7 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     col_fecha_cie = find_col(df, "Fecha de solución") or find_col(df, "Solution date") or find_col(df, "Fecha de cierre") or find_col(df, "Closing date") or find_col(df, "Última modificación")
     col_tiempo = find_col(df, "tiempo en resolver") or find_col(df, "Tiempo en resolver")
     col_fecha_venc = find_col(df, "Fecha de vencimiento") or find_col(df, "Tiempo límite") or find_col(df, "Due date")
-    col_excedido = find_col(df, "Tiempo de solución excedido") or find_col(df, "TTR excedido") or find_col(df, "SLA excedido")
+    col_excedido = find_col(df, "Tarde") or find_col(df, "Tiempo de solución excedido") or find_col(df, "TTR excedido") or find_col(df, "SLA excedido")
 
     df["Fecha Apertura (Bogotá)"] = df[col_fecha_cre].apply(lambda s: to_timestamp(s, offset_hours)) if col_fecha_cre else pd.NaT
     df["Resuelto"] = df["Estados"].apply(is_resolved)
