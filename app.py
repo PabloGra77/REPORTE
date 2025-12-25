@@ -286,14 +286,25 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
     def estado_sla(row):
         is_late = False
         
-        # 0. Prioridad ABSOLUTA: Si existe columna explícita de GLPI "Excedido"
-        if col_excedido and pd.notna(row[col_excedido]):
+        # 0. REGLA DE ORO (Usuario): Si NO hay fecha de vencimiento ("Tiempo en resolver"), SIEMPRE es A TIEMPO.
+        if pd.isna(row.get("Fecha Vencimiento (Bogotá)")):
+            is_late = False
+
+        # 1. Si hay fecha, verificamos columna explícita de GLPI "Excedido"
+        elif col_excedido and pd.notna(row[col_excedido]):
             val = str(row[col_excedido]).lower().strip()
             if val in ["si", "yes", "1", "true", "excedido"]:
                 is_late = True
+            else:
+                # Si columna Excedido dice NO, verificamos fecha por si acaso (o confiamos en la columna)
+                # GLPI manda: si Excedido es NO, es NO. Pero mantendremos chequeo de fecha por consistencia si usuario quiere.
+                # Para ser consistentes con GLPI, si existe columna Excedido, deberíamos confiar en ella.
+                # Sin embargo, la lógica de fecha es la prueba definitiva.
+                pass
         
-        # 1. Si no hay columna explícita, usar Fecha de Vencimiento (Lógica GLPI)
-        elif pd.notna(row.get("Fecha Vencimiento (Bogotá)")):
+        # 2. Si no hay columna "Excedido" (o no dice nada), verificamos fechas manualmente
+        # (Ya sabemos que existe Fecha Vencimiento porque pasamos el paso 0)
+        if not is_late and pd.notna(row.get("Fecha Vencimiento (Bogotá)")):
             limit = row["Fecha Vencimiento (Bogotá)"]
             if row["Resuelto"]:
                 # Si se cerró después de la fecha límite
@@ -304,12 +315,6 @@ def procesar_datos(df: pd.DataFrame, offset_hours: float = OFFSET_HOURS):
                 now_bog = datetime.now(ZoneInfo("America/Bogota")).replace(tzinfo=None)
                 if now_bog > limit:
                     is_late = True
-        
-        # 2. Fallback: DESACTIVADO
-        # Si GLPI no indica fecha de vencimiento ni marca "Excedido", asumimos que está en tiempo.
-        # Esto reduce falsos positivos causados por SLAs hardcodeados que no coinciden con la configuración real.
-        else:
-             is_late = False
 
         if not row["Resuelto"]:
             return "⏰ Abierto (Tardío)" if is_late else "🟢 Abierto"
