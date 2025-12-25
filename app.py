@@ -769,114 +769,158 @@ if not is_tv:
 # MODO TV
 # ==================
 else:
-    # Botón flotante para pantalla completa (Versión Mejorada JS)
-    st.markdown("""
-    <style>
-    .fullscreen-btn {
-        position: fixed;
-        bottom: 20px;
-        right: 20px;
-        z-index: 2147483647; /* Max Z-Index */
-        background-color: rgba(58, 134, 255, 0.3);
-        border: 2px solid #3A86FF;
-        color: white;
-        padding: 12px;
-        border-radius: 50%;
-        cursor: pointer;
-        width: 60px;
-        height: 60px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 30px;
-        transition: all 0.3s ease;
-        backdrop-filter: blur(4px);
-        box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-    }
-    .fullscreen-btn:hover {
-        background-color: #3A86FF;
-        transform: scale(1.1);
-        box-shadow: 0 0 20px rgba(58, 134, 255, 0.6);
-    }
-    </style>
-    
-    <button onclick="toggleFullScreen()" class="fullscreen-btn" title="Pantalla Completa">⛶</button>
-    
-    <script>
-    window.toggleFullScreen = function() {
-        var doc = window.document;
-        var docEl = doc.documentElement;
-
-        var requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
-        var cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
-
-        if(!doc.fullscreenElement && !doc.mozFullScreenElement && !doc.webkitFullscreenElement && !doc.msFullscreenElement) {
-            if (requestFullScreen) {
-                requestFullScreen.call(docEl);
-            }
-        } else {
-            if (cancelFullScreen) {
-                cancelFullScreen.call(doc);
-            }
-        }
-    };
-    </script>
-    """, unsafe_allow_html=True)
+    # Inicializar estado de reproducción del TV
+    if 'tv_playing' not in st.session_state:
+        st.session_state.tv_playing = False
 
     uploaded = st.file_uploader("📎 CSV", type=["csv"], key="tv_upload", label_visibility="collapsed")
+    
     if not uploaded:
+        st.session_state.tv_playing = False # Resetear si se quita el archivo
         st.markdown("<div style='text-align:center;padding:100px;'><h1 style='color:#3A86FF;'>📺 PANEL TV</h1><p style='color:#AAA;'>Esperando archivo...</p></div>", unsafe_allow_html=True)
         st.stop()
     
     df = pd.read_csv(uploaded, sep=";")
     df_procesado = procesar_datos(df, OFFSET_HOURS)
-    resumen = generar_resumen(df_procesado, "Asignado a - Técnico")
+    resumen_raw = generar_resumen(df_procesado, "Asignado a - Técnico")
     
-    if resumen.empty:
-        st.warning("Sin datos")
+    if resumen_raw.empty:
+        st.warning("Sin datos para mostrar.")
         st.stop()
-    
-    tecnicos = resumen.sort_values("SLA (%)", ascending=False).reset_index(drop=True)
-    total = len(tecnicos)
-    
-    if 'tv_index' not in st.session_state:
-        st.session_state.tv_index = 0
-    
-    idx = st.session_state.tv_index % (total + 1)
-    hora = datetime.now(ZoneInfo("America/Bogota"))
-    
-    # Usar un placeholder para actualizar el contenido dinámicamente
-    content_placeholder = st.empty()
-    
-    with content_placeholder.container():
-        if idx == total:
-            # VISTA GLOBAL
-            st.markdown(f"<h1 style='text-align:center;color:#3A86FF;'>RESUMEN GLOBAL</h1><p style='text-align:center;color:#888;'>{hora.strftime('%d/%m/%Y %H:%M:%S')}</p>", unsafe_allow_html=True)
+        
+    # Obtener lista de todos los técnicos disponibles
+    all_tecnicos = sorted(resumen_raw["Asignado a - Técnico"].unique().tolist())
+
+    # --- FASE 1: CONFIGURACIÓN ---
+    if not st.session_state.tv_playing:
+        st.markdown("### ⚙️ Configuración del Modo TV")
+        
+        col_conf1, col_conf2 = st.columns([3, 1])
+        with col_conf1:
+            excluidos = st.multiselect(
+                "🚫 Seleccionar técnicos para EXCLUIR del carrusel:",
+                options=all_tecnicos,
+                key="tv_excluded_tecnicos",
+                help="Los técnicos seleccionados no aparecerán en la rotación de pantalla."
+            )
+        
+        with col_conf2:
+            st.markdown("<div style='height: 28px'></div>", unsafe_allow_html=True) # Espaciador
+            if st.button("▶ INICIAR TV", type="primary", use_container_width=True):
+                st.session_state.tv_playing = True
+                st.rerun()
+                
+        st.info(f"Se mostrarán {len(all_tecnicos) - len(excluidos)} técnicos en el carrusel.")
+
+    # --- FASE 2: REPRODUCCIÓN ---
+    else:
+        # Botón para detener y volver a configurar
+        if st.button("⏹ DETENER Y CONFIGURAR", type="secondary"):
+            st.session_state.tv_playing = False
+            st.rerun()
+
+        # Botón flotante JS para Pantalla Completa (Usando window.parent para escapar del iframe si es necesario)
+        st.markdown("""
+        <div style="position: fixed; bottom: 20px; right: 20px; z-index: 999999;">
+            <button id="btn-fullscreen" style="
+                background-color: rgba(58, 134, 255, 0.5);
+                border: 2px solid #3A86FF;
+                color: white;
+                width: 60px;
+                height: 60px;
+                border-radius: 50%;
+                font-size: 30px;
+                cursor: pointer;
+                display: flex; align-items: center; justify-content: center;
+                box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+                transition: all 0.3s ease;
+                backdrop-filter: blur(5px);
+            " title="Pantalla Completa">
+            ⛶
+            </button>
+        </div>
+        
+        <script>
+        // Función autoejecutable para aislar scope y asegurar carga
+        (function() {
+            var btn = document.getElementById("btn-fullscreen");
+            if (!btn) return;
             
-            sla_g = resumen["SLA (%)"].mean()
-            color = "#06D6A0" if sla_g >= 90 else "#FFD166" if sla_g >= 70 else "#EF476F"
+            btn.onclick = function() {
+                // Intentar acceder al documento padre (ventana principal del navegador)
+                var doc = window.parent.document;
+                var docEl = doc.documentElement;
+                
+                var requestFullScreen = docEl.requestFullscreen || docEl.mozRequestFullScreen || docEl.webkitRequestFullScreen || docEl.msRequestFullscreen;
+                var cancelFullScreen = doc.exitFullscreen || doc.mozCancelFullScreen || doc.webkitExitFullscreen || doc.msExitFullscreen;
+                
+                if(!doc.fullscreenElement && !doc.mozFullScreenElement && !doc.webkitFullscreenElement && !doc.msFullscreenElement) {
+                    if (requestFullScreen) {
+                        requestFullScreen.call(docEl);
+                    }
+                } else {
+                    if (cancelFullScreen) {
+                        cancelFullScreen.call(doc);
+                    }
+                }
+            };
             
-            st.markdown(f"<div style='text-align:center;padding:50px;'><div style='color:{color};font-size:140px;font-weight:900;'>{sla_g:.1f}%</div></div>", unsafe_allow_html=True)
+            // Efecto hover simple via JS por si CSS falla en repintado
+            btn.onmouseover = function() { this.style.transform = "scale(1.1)"; this.style.backgroundColor = "#3A86FF"; };
+            btn.onmouseout = function() { this.style.transform = "scale(1)"; this.style.backgroundColor = "rgba(58, 134, 255, 0.5)"; };
+        })();
+        </script>
+        """, unsafe_allow_html=True)
+
+        # Filtrar datos según exclusiones
+        excluidos_lista = st.session_state.get("tv_excluded_tecnicos", [])
+        resumen = resumen_raw[~resumen_raw["Asignado a - Técnico"].isin(excluidos_lista)]
+        
+        if resumen.empty:
+            st.error("Todos los técnicos han sido excluidos. Por favor configura de nuevo.")
+            st.stop()
             
-            for i, row in tecnicos.iterrows():
-                sla = row["SLA (%)"]
-                c = "#06D6A0" if sla >= 90 else "#FFD166" if sla >= 70 else "#EF476F"
-                medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
-                st.markdown(f"<div style='background:#1A1A1A;padding:20px;margin:10px;border-left:4px solid {c};'><span style='font-size:24px;'>{medal} {row['Asignado a - Técnico']}</span><span style='float:right;color:{c};font-size:28px;font-weight:900;'>{sla:.1f}%</span></div>", unsafe_allow_html=True)
-        else:
-            # VISTA INDIVIDUAL
-            tec = tecnicos.iloc[idx]
-            sla = tec["SLA (%)"]
-            color = "#06D6A0" if sla >= 90 else "#FFD166" if sla >= 70 else "#EF476F"
-            
-            st.markdown(f"<h1 style='text-align:center;color:#FFF;font-size:48px;'>{tec['Asignado a - Técnico']}</h1><p style='text-align:center;color:#888;font-size:18px;'>Posicion #{idx+1} de {total} | {hora.strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
-            st.markdown(f"<div style='text-align:center;padding:60px;background:#1A1A1A;border:3px solid {color};border-radius:20px;margin:30px;'><div style='color:#888;font-size:28px;margin-bottom:20px;'>CUMPLIMIENTO SLA</div><div style='color:{color};font-size:180px;font-weight:900;line-height:1;'>{sla:.1f}%</div></div>", unsafe_allow_html=True)
-            
-            col1, col2, col3 = st.columns(3)
-            col1.markdown(f"<div style='text-align:center;padding:35px;background:#1A1A1A;border-radius:10px;border-top:4px solid #3A86FF;'><div style='color:#888;font-size:16px;margin-bottom:15px;'>ASIGNADOS</div><div style='color:#3A86FF;font-size:64px;font-weight:700;'>{int(tec['Asignados'])}</div></div>", unsafe_allow_html=True)
-            col2.markdown(f"<div style='text-align:center;padding:35px;background:#1A1A1A;border-radius:10px;border-top:4px solid #06D6A0;'><div style='color:#888;font-size:16px;margin-bottom:15px;'>RESUELTOS</div><div style='color:#06D6A0;font-size:64px;font-weight:700;'>{int(tec['Resueltos'])}</div></div>", unsafe_allow_html=True)
-            col3.markdown(f"<div style='text-align:center;padding:35px;background:#1A1A1A;border-radius:10px;border-top:4px solid #EF476F;'><div style='color:#888;font-size:16px;margin-bottom:15px;'>TARDÍOS</div><div style='color:#EF476F;font-size:64px;font-weight:700;'>{int(tec['Tardíos'])}</div></div>", unsafe_allow_html=True)
-    
-    time_module.sleep(5)
-    st.session_state.tv_index += 1
-    st.rerun()
+        tecnicos = resumen.sort_values("SLA (%)", ascending=False).reset_index(drop=True)
+        total = len(tecnicos)
+        
+        if 'tv_index' not in st.session_state:
+            st.session_state.tv_index = 0
+        
+        idx = st.session_state.tv_index % (total + 1)
+        hora = datetime.now(ZoneInfo("America/Bogota"))
+        
+        # Usar un placeholder para actualizar el contenido dinámicamente
+        content_placeholder = st.empty()
+        
+        with content_placeholder.container():
+            if idx == total:
+                # VISTA GLOBAL
+                st.markdown(f"<h1 style='text-align:center;color:#3A86FF;'>RESUMEN GLOBAL</h1><p style='text-align:center;color:#888;'>{hora.strftime('%d/%m/%Y %H:%M:%S')}</p>", unsafe_allow_html=True)
+                
+                sla_g = resumen["SLA (%)"].mean()
+                color = "#06D6A0" if sla_g >= 90 else "#FFD166" if sla_g >= 70 else "#EF476F"
+                
+                st.markdown(f"<div style='text-align:center;padding:50px;'><div style='color:{color};font-size:140px;font-weight:900;'>{sla_g:.1f}%</div></div>", unsafe_allow_html=True)
+                
+                for i, row in tecnicos.iterrows():
+                    sla = row["SLA (%)"]
+                    c = "#06D6A0" if sla >= 90 else "#FFD166" if sla >= 70 else "#EF476F"
+                    medal = "🥇" if i == 0 else "🥈" if i == 1 else "🥉" if i == 2 else f"#{i+1}"
+                    st.markdown(f"<div style='background:#1A1A1A;padding:20px;margin:10px;border-left:4px solid {c};'><span style='font-size:24px;'>{medal} {row['Asignado a - Técnico']}</span><span style='float:right;color:{c};font-size:28px;font-weight:900;'>{sla:.1f}%</span></div>", unsafe_allow_html=True)
+            else:
+                # VISTA INDIVIDUAL
+                tec = tecnicos.iloc[idx]
+                sla = tec["SLA (%)"]
+                color = "#06D6A0" if sla >= 90 else "#FFD166" if sla >= 70 else "#EF476F"
+                
+                st.markdown(f"<h1 style='text-align:center;color:#FFF;font-size:48px;'>{tec['Asignado a - Técnico']}</h1><p style='text-align:center;color:#888;font-size:18px;'>Posicion #{idx+1} de {total} | {hora.strftime('%H:%M:%S')}</p>", unsafe_allow_html=True)
+                st.markdown(f"<div style='text-align:center;padding:60px;background:#1A1A1A;border:3px solid {color};border-radius:20px;margin:30px;'><div style='color:#888;font-size:28px;margin-bottom:20px;'>CUMPLIMIENTO SLA</div><div style='color:{color};font-size:180px;font-weight:900;line-height:1;'>{sla:.1f}%</div></div>", unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns(3)
+                col1.markdown(f"<div style='text-align:center;padding:35px;background:#1A1A1A;border-radius:10px;border-top:4px solid #3A86FF;'><div style='color:#888;font-size:16px;margin-bottom:15px;'>ASIGNADOS</div><div style='color:#3A86FF;font-size:64px;font-weight:700;'>{int(tec['Asignados'])}</div></div>", unsafe_allow_html=True)
+                col2.markdown(f"<div style='text-align:center;padding:35px;background:#1A1A1A;border-radius:10px;border-top:4px solid #06D6A0;'><div style='color:#888;font-size:16px;margin-bottom:15px;'>RESUELTOS</div><div style='color:#06D6A0;font-size:64px;font-weight:700;'>{int(tec['Resueltos'])}</div></div>", unsafe_allow_html=True)
+                col3.markdown(f"<div style='text-align:center;padding:35px;background:#1A1A1A;border-radius:10px;border-top:4px solid #EF476F;'><div style='color:#888;font-size:16px;margin-bottom:15px;'>TARDÍOS</div><div style='color:#EF476F;font-size:64px;font-weight:700;'>{int(tec['Tardíos'])}</div></div>", unsafe_allow_html=True)
+        
+        time_module.sleep(5)
+        st.session_state.tv_index += 1
+        st.rerun()
